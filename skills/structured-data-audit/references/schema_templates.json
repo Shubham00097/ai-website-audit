@@ -1,0 +1,109 @@
+{
+  "_comment": "Ready-to-adapt JSON-LD structured data templates for common schema.org types.",
+  "templates": {
+    "Organization": {
+      "@context": "https://schema.org",
+      "@type": "Organization",
+      "@id": "https://example.com/#organization",
+      "name": "Your Organization Name",
+      "url": "https://example.com",
+      "logo": {"@type": "ImageObject", "url": "https://example.com/logo.png"},
+      "sameAs": [
+        "https://www.linkedin.com/company/your-company",
+        "https://twitter.com/yourcompany",
+        "https://en.wikipedia.org/wiki/Your_Company"
+      ],
+      "contactPoint": {
+        "@type": "ContactPoint",
+        "contactType": "customer service",
+        "email": "contact@example.com"
+      }
+    },
+    "LocalBusiness": {
+      "@context": "https://schema.org",
+      "@type": "LocalBusiness",
+      "@id": "https://example.com/#business",
+      "name": "Business Name",
+      "address": {
+        "@type": "PostalAddress",
+        "streetAddress": "123 Main St",
+        "addressLocality": "City",
+        "addressRegion": "State",
+        "postalCode": "12345",
+        "addressCountry": "US"
+      },
+      "telephone": "+1-555-000-0000",
+      "openingHours": ["Mo-Fr 09:00-17:00"]
+    },
+    "Article": {
+      "@context": "https://schema.org",
+      "@type": "Article",
+      "headline": "Article Title",
+      "author": {"@type": "Person", "name": "Author Name"},
+      "datePublished": "2026-01-01",
+      "dateModified": "2026-01-15",
+      "image": {"@type": "ImageObject", "url": "https://example.com/image.jpg"},
+      "publisher": {
+        "@type": "Organization",
+        "name": "Publisher Name",
+        "logo": {"@type": "ImageObject", "url": "https://example.com/logo.png"}
+      }
+    },
+    "Product": {
+      "@context": "https://schema.org",
+      "@type": "Product",
+      "name": "Product Name",
+      "description": "Product description",
+      "image": "https://example.com/product.jpg",
+      "offers": {
+        "@type": "Offer",
+        "price": "29.99",
+        "priceCurrency": "USD",
+        "availability": "https://schema.org/InStock"
+      }
+    },
+    "FAQPage": {
+      "@context": "https://schema.org",
+      "@type": "FAQPage",
+      "mainEntity": [
+        {
+          "@type": "Question",
+          "name": "What is your return policy?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "We offer a 30-day return policy for all products."
+          }
+        }
+      ]
+    },
+    "SoftwareApplication": {
+      "@context": "https://schema.org",
+      "@type": "SoftwareApplication",
+      "name": "App Name",
+      "operatingSystem": "Web",
+      "applicationCategory": "BusinessApplication",
+      "offers": {"@type": "Offer", "price": "0", "priceCurrency": "USD"}
+    },
+    "WebSite": {
+      "@context": "https://schema.org",
+      "@type": "WebSite",
+      "@id": "https://example.com/#website",
+      "url": "https://example.com",
+      "name": "Site Name",
+      "potentialAction": {
+        "@type": "SearchAction",
+        "target": {"@type": "EntryPoint", "urlTemplate": "https://example.com/search?q={search_term_string}"},
+        "query-input": "required name=search_term_string"
+      }
+    },
+    "VideoObject": {
+      "@context": "https://schema.org",
+      "@type": "VideoObject",
+      "name": "Video Title",
+      "description": "Video description",
+      "thumbnailUrl": "https://example.com/thumbnail.jpg",
+      "uploadDate": "2026-01-01",
+      "duration": "PT5M30S"
+    }
+  }
+}

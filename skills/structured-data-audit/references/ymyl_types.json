@@ -1,0 +1,23 @@
+{
+  "_comment": "YMYL (Your Money or Your Life) schema types. These require verified real-world credentials before being recommended. Incorrect YMYL markup is a manual-action risk.",
+  "ymyl_types": [
+    "LegalService",
+    "Attorney",
+    "Lawyer",
+    "MedicalWebPage",
+    "Physician",
+    "Hospital",
+    "MedicalOrganization",
+    "MedicalClinic",
+    "Pharmacy",
+    "Drug",
+    "MedicalCondition",
+    "DietarySupplement",
+    "FinancialService",
+    "BankOrCreditUnion",
+    "InsuranceAgency",
+    "AccountingService",
+    "InvestmentOrDeposit"
+  ],
+  "warning": "Never recommend YMYL schema types without verifying that the site owner has the relevant professional credentials. Incorrect YMYL markup can trigger Google manual actions."
+}

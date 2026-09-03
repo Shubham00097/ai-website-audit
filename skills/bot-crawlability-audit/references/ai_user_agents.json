@@ -1,0 +1,56 @@
+{
+  "_comment": "AI Crawler User-Agent Registry — 22 bots across 4 categories. Source: geo-reporter (internet-and-sons)",
+  "categories": {
+    "live_retrieval": {
+      "description": "Fetches pages on demand when a user asks an AI assistant a question",
+      "bots": [
+        {"name": "ChatGPT-User",     "owner": "OpenAI",     "user_agent": "ChatGPT-User"},
+        {"name": "Claude-User",      "owner": "Anthropic",  "user_agent": "Claude-User"},
+        {"name": "Perplexity-User",  "owner": "Perplexity", "user_agent": "Perplexity-User"},
+        {"name": "MistralAI-User",   "owner": "Mistral AI", "user_agent": "MistralAI-User"},
+        {"name": "Google-Agent",     "owner": "Google",     "user_agent": "Google-Agent"}
+      ]
+    },
+    "search_index": {
+      "description": "Indexes pages to power AI search results",
+      "bots": [
+        {"name": "OAI-SearchBot",    "owner": "OpenAI",     "user_agent": "OAI-SearchBot"},
+        {"name": "Claude-SearchBot", "owner": "Anthropic",  "user_agent": "Claude-SearchBot"},
+        {"name": "PerplexityBot",    "owner": "Perplexity", "user_agent": "PerplexityBot"},
+        {"name": "DuckAssistBot",    "owner": "DuckDuckGo", "user_agent": "DuckAssistBot"},
+        {"name": "Amazonbot",        "owner": "Amazon",     "user_agent": "Amazonbot"}
+      ]
+    },
+    "traditional_search": {
+      "description": "Traditional search crawlers that also power AI search surfaces",
+      "bots": [
+        {"name": "Googlebot",        "owner": "Google",     "user_agent": "Googlebot"},
+        {"name": "Bingbot",          "owner": "Microsoft",  "user_agent": "bingbot"}
+      ]
+    },
+    "training": {
+      "description": "Crawlers that collect data for model training",
+      "bots": [
+        {"name": "GPTBot",              "owner": "OpenAI",     "user_agent": "GPTBot"},
+        {"name": "ClaudeBot",           "owner": "Anthropic",  "user_agent": "ClaudeBot"},
+        {"name": "CCBot",               "owner": "Common Crawl","user_agent": "CCBot"},
+        {"name": "Google-Extended",     "owner": "Google",     "user_agent": "Google-Extended"},
+        {"name": "Bytespider",          "owner": "ByteDance",  "user_agent": "Bytespider"},
+        {"name": "Meta-ExternalAgent",  "owner": "Meta",       "user_agent": "Meta-ExternalAgent"},
+        {"name": "cohere-ai",           "owner": "Cohere",     "user_agent": "cohere-ai"},
+        {"name": "Google-CloudVertexBot","owner": "Google",    "user_agent": "Google-CloudVertexBot"},
+        {"name": "anthropic-ai",        "owner": "Anthropic",  "user_agent": "anthropic-ai",  "note": "retired opt-out token"},
+        {"name": "claude-web",          "owner": "Anthropic",  "user_agent": "claude-web",     "note": "retired opt-out token"}
+      ]
+    }
+  },
+  "priority_probes": [
+    "GPTBot",
+    "ClaudeBot",
+    "PerplexityBot",
+    "ChatGPT-User",
+    "Claude-User",
+    "Googlebot",
+    "OAI-SearchBot"
+  ]
+}

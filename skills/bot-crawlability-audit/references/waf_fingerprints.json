@@ -1,0 +1,81 @@
+{
+  "_comment": "WAF/CDN fingerprint patterns. Matched against response headers to identify which product is blocking AI bots.",
+  "products": [
+    {
+      "name": "Cloudflare",
+      "header_patterns": [
+        {"header": "server",          "contains": "cloudflare"},
+        {"header": "cf-ray",          "exists": true},
+        {"header": "cf-cache-status", "exists": true}
+      ]
+    },
+    {
+      "name": "Akamai",
+      "header_patterns": [
+        {"header": "x-akamai-transformed", "exists": true},
+        {"header": "x-check-cacheable",    "exists": true},
+        {"header": "server",               "contains": "akamai"}
+      ]
+    },
+    {
+      "name": "AWS CloudFront",
+      "header_patterns": [
+        {"header": "x-amz-cf-id",  "exists": true},
+        {"header": "x-amz-cf-pop", "exists": true},
+        {"header": "via",          "contains": "cloudfront"}
+      ]
+    },
+    {
+      "name": "AWS WAF",
+      "header_patterns": [
+        {"header": "x-amzn-requestid", "exists": true},
+        {"header": "x-amzn-trace-id",  "exists": true}
+      ]
+    },
+    {
+      "name": "Imperva (Incapsula)",
+      "header_patterns": [
+        {"header": "x-iinfo",         "exists": true},
+        {"header": "x-cdn",           "contains": "incapsula"},
+        {"header": "set-cookie",      "contains": "incap_ses"}
+      ]
+    },
+    {
+      "name": "Fastly",
+      "header_patterns": [
+        {"header": "x-served-by", "contains": "cache-"},
+        {"header": "x-cache",     "exists": true},
+        {"header": "fastly-restarts", "exists": true}
+      ]
+    },
+    {
+      "name": "Azure Front Door",
+      "header_patterns": [
+        {"header": "x-azure-ref",            "exists": true},
+        {"header": "x-fd-healthprobe",       "exists": true},
+        {"header": "x-msedge-ref",           "exists": true}
+      ]
+    },
+    {
+      "name": "Sucuri",
+      "header_patterns": [
+        {"header": "x-sucuri-id",      "exists": true},
+        {"header": "x-sucuri-cache",   "exists": true},
+        {"header": "server",           "contains": "sucuri"}
+      ]
+    },
+    {
+      "name": "F5 BIG-IP",
+      "header_patterns": [
+        {"header": "set-cookie", "contains": "BIGipServer"},
+        {"header": "server",     "contains": "BigIP"}
+      ]
+    },
+    {
+      "name": "Barracuda",
+      "header_patterns": [
+        {"header": "server", "contains": "barracuda"}
+      ]
+    }
+  ]
+}

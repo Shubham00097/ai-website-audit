@@ -1,0 +1,41 @@
+{
+  "_comment": "Known AI prompt injection and content cloaking patterns. Regex-based detection. Findings are conservative — flagged as signals for review, not proof of intent.",
+  "patterns": [
+    {
+      "id": "INJ-001",
+      "name": "LLM instruction in HTML comment",
+      "description": "Imperative instructions directed at AI systems found inside HTML comments",
+      "pattern": "(?i)(?:ignore|disregard|forget)\\s+(?:previous|prior|above|all)\\s+(?:instructions?|prompts?|context)",
+      "context": "html_comment"
+    },
+    {
+      "id": "INJ-002",
+      "name": "Cite-this instruction in HTML",
+      "description": "Instructions telling an AI to cite or quote specific content",
+      "pattern": "(?i)(?:cite|quote|refer to|mention)\\s+(?:this|the following)\\s+(?:as|page|source)",
+      "context": "html_comment"
+    },
+    {
+      "id": "INJ-003",
+      "name": "Zero-width Unicode characters",
+      "description": "Invisible Unicode characters embedded in visible text (common cloaking technique)",
+      "characters": ["\u200b", "\u200c", "\u200d", "\u2060", "\ufeff"],
+      "context": "text_content"
+    },
+    {
+      "id": "INJ-004",
+      "name": "CSS-hidden keyword block",
+      "description": "Text block hidden via CSS display:none or visibility:hidden containing 8+ words",
+      "css_properties": ["display:none", "display: none", "visibility:hidden", "visibility: hidden"],
+      "min_words": 8,
+      "context": "css_hidden"
+    },
+    {
+      "id": "INJ-005",
+      "name": "Aria-hidden LLM instruction",
+      "description": "Instructions targeted at AI in aria-hidden containers",
+      "pattern": "(?i)(?:you are|act as|respond as|your role is)",
+      "context": "aria_hidden"
+    }
+  ]
+}
