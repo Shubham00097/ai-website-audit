@@ -100,8 +100,9 @@ def _check_required_fields(schema: dict, schema_type: str) -> list[str]:
 
 
 def _check_same_as(same_as: list[str], findings: list[Finding], idx: list[int]) -> None:
-    """Check sameAs links for placeholders and dead links."""
-    for link in same_as:
+    """Check sameAs links for placeholders and dead links (capped to top 6 to stay responsive)."""
+    unique_links = list(dict.fromkeys(same_as))[:6]
+    for link in unique_links:
         if link == "#" or not link.startswith("http"):
             findings.append(make_finding(
                 skill_prefix=SKILL_PREFIX,

@@ -8,11 +8,16 @@ User-Agent headers, redirect handling, and graceful error handling.
 from __future__ import annotations
 
 import requests
+import urllib3
 from requests import Response
 from typing import Optional
 
+# Suppress urllib3 SSL warnings when falling back to unverified requests
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
 # Default timeout for all requests (connect, read)
-DEFAULT_TIMEOUT = (8, 15)
+DEFAULT_TIMEOUT = (5, 8)
+DEFAULT_HEAD_TIMEOUT = (3, 4)
 
 # Default User-Agent for general page fetching (non-bot-probe requests)
 DEFAULT_USER_AGENT = (
@@ -32,7 +37,7 @@ def get(
     user_agent: Optional[str] = None,
     timeout: tuple = DEFAULT_TIMEOUT,
     allow_redirects: bool = True,
-    verify_ssl: bool = False,
+    verify_ssl: bool = True,
 ) -> Optional[Response]:
     """
     Perform an HTTP GET request.
@@ -72,9 +77,9 @@ def get(
 
 def head(
     url: str,
-    timeout: tuple = DEFAULT_TIMEOUT,
+    timeout: tuple = DEFAULT_HEAD_TIMEOUT,
     allow_redirects: bool = True,
-    verify_ssl: bool = False,
+    verify_ssl: bool = True,
 ) -> Optional[Response]:
     """
     Perform an HTTP HEAD request.
