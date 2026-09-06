@@ -11,9 +11,7 @@ parameters:
     type: string
     required: true
     description: The website URL to audit
-allowed_tools:
-  - read_file
-  - http_request
+allowed-tools: Read Bash
 ---
 
 # Structured Data Audit

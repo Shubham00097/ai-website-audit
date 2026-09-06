@@ -7,7 +7,7 @@
   "tags": ["ai", "seo", "audit", "crawlability", "structured-data", "agentskills"],
   "license": "MIT",
   "entrypoint": "skills/audit-orchestrator",
-  "allowed_tools": ["read_file", "http_request"],
+  "_allowed_tools_note": "Per the agentskills.io spec (v1, experimental), allowed-tools is declared per-skill in each SKILL.md frontmatter, not at the marketplace level. All skills in this marketplace need 'Read' (to load reference files and scripts) and 'Bash' (to execute Python scripts that make HTTP requests). There is no separate 'http_request' tool in the spec — HTTP calls are made by Python scripts invoked via Bash. See https://agentskills.io/specification for the canonical spec.",
   "skills": [
     {
       "name": "audit-orchestrator",

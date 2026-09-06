@@ -128,6 +128,8 @@ def _check_robots(url: str, findings: list[Finding], idx: list[int]) -> tuple:
                 "Even an empty one signals good bot citizenship and allows AI crawlers to discover your crawl rules."
             ),
             action_priority="medium",
+            confidence="robots.txt parse",
+            cause_tag="crawler_access",
         ))
         idx[0] += 1
         return False, None, [], None
@@ -159,6 +161,8 @@ def _check_robots(url: str, findings: list[Finding], idx: list[int]) -> tuple:
                 "Use per-bot Disallow directives to allow retrieval bots while still blocking training bots if desired."
             ),
             action_priority="high",
+            confidence="robots.txt parse",
+            cause_tag="crawler_access",
         ))
         idx[0] += 1
 
@@ -216,6 +220,8 @@ def _check_live_probes(url: str, parser, findings: list[Finding], idx: list[int]
                     f"Test with: curl -A '{ua_full}' {url}"
                 ),
                 action_priority="high",
+                confidence="live HTTP probe",
+                cause_tag="crawler_access",
             ))
             idx[0] += 1
 
@@ -234,6 +240,8 @@ def _check_live_probes(url: str, parser, findings: list[Finding], idx: list[int]
                     "If you want AI systems to freely index your content, remove the 402 gate for AI retrieval bots."
                 ),
                 action_priority="medium",
+                confidence="live HTTP probe",
+                cause_tag="crawler_access",
             ))
             idx[0] += 1
 
@@ -260,6 +268,8 @@ def _check_llms_txt(url: str, findings: list[Finding], idx: list[int]) -> None:
                 "See https://llmstxt.org for the format specification."
             ),
             action_priority="medium",
+            confidence="static heuristic",
+            cause_tag="crawler_access",
         ))
         idx[0] += 1
 
@@ -294,6 +304,8 @@ def _check_sitemap(url: str, raw_robots: "str | None", findings: list[Finding], 
                     "Verify the sitemap is publicly accessible at the declared URL."
                 ),
                 action_priority="medium",
+                confidence="live HTTP probe",
+                cause_tag="crawler_access",
             ))
             idx[0] += 1
             return
@@ -319,6 +331,8 @@ def _check_sitemap(url: str, raw_robots: "str | None", findings: list[Finding], 
                 "Also reference it in your robots.txt: Sitemap: https://yourdomain.com/sitemap.xml"
             ),
             action_priority="medium",
+            confidence="static heuristic",
+            cause_tag="crawler_access",
         ))
         idx[0] += 1
 

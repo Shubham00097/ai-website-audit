@@ -32,8 +32,9 @@ if _REPO_ROOT not in sys.path:
     sys.path.insert(0, _REPO_ROOT)
 
 from shared.url_utils import normalise_url, validate_url, get_domain
-from shared.html_utils import fetch_and_parse, get_meta_content, get_all_text_blocks
+from shared.html_utils import fetch_html_and_parse, get_meta_content, get_all_text_blocks
 from shared.findings import make_finding, Finding
+from shared.js_render_detector import detect_js_render_gap, emit_js_render_finding
 
 # Import dateutil for robust ISO 8601 parsing (handles TZ offsets, Z-suffix, etc.)
 try:
@@ -144,6 +145,8 @@ def _check_content_quality(soup, findings: list[Finding], idx: list[int]) -> Non
                 "Each paragraph should ideally start with the answer, then provide supporting detail."
             ),
             action_priority="medium",
+            confidence="static heuristic",
+            cause_tag="content_quality",
         ))
         idx[0] += 1
         return
@@ -170,6 +173,8 @@ def _check_content_quality(soup, findings: list[Finding], idx: list[int]) -> Non
                 "Consult skills/citability-freshness-audit/references/citability_rubric.md for guidance."
             ),
             action_priority="medium",
+            confidence="static heuristic",
+            cause_tag="content_quality",
         ))
         idx[0] += 1
 
@@ -259,6 +264,8 @@ def _check_freshness(soup, findings: list[Finding], idx: list[int]) -> None:
                         "Regularly update your content and the dateModified date to signal freshness to AI systems."
                     ),
                     action_priority="medium",
+                    confidence="static heuristic",
+                    cause_tag="content_freshness",
                 ))
                 idx[0] += 1
             return
@@ -285,6 +292,8 @@ def _check_freshness(soup, findings: list[Finding], idx: list[int]) -> None:
                     "Even minor content updates reset the freshness signal for AI systems."
                 ),
                 action_priority="high",
+                confidence="static heuristic",
+                cause_tag="content_freshness",
             ))
             idx[0] += 1
     else:
@@ -305,6 +314,8 @@ def _check_freshness(soup, findings: list[Finding], idx: list[int]) -> None:
                 "Also add <meta property='article:modified_time' content='...'>."
             ),
             action_priority="high",
+            confidence="static heuristic",
+            cause_tag="content_freshness",
         ))
         idx[0] += 1
 
@@ -346,6 +357,8 @@ def _check_author(soup, findings: list[Finding], idx: list[int]) -> None:
             "(3) an 'author' field in your Article JSON-LD structured data."
         ),
         action_priority="medium",
+        confidence="static heuristic",
+        cause_tag="trust_signals",
     ))
     idx[0] += 1
 
@@ -389,6 +402,8 @@ def _check_trust_signals(soup, url: str, findings: list[Finding], idx: list[int]
                 "At least 2–3 outbound citations on content pages signals credibility."
             ),
             action_priority="medium",
+            confidence="static heuristic",
+            cause_tag="trust_signals",
         ))
         idx[0] += 1
 
@@ -419,6 +434,8 @@ def _check_cloaking(soup, findings: list[Finding], idx: list[int]) -> None:
                             "and may cause your content to be deprioritised or filtered by AI systems."
                         ),
                         action_priority="high",
+                        confidence="static heuristic",
+                        cause_tag="content_integrity",
                     ))
                     idx[0] += 1
                     break
@@ -443,6 +460,8 @@ def _check_cloaking(soup, findings: list[Finding], idx: list[int]) -> None:
                 "from your page content. These may have been introduced by CMS plugins or copy-paste from word processors."
             ),
             action_priority="high",
+            confidence="static heuristic",
+            cause_tag="content_integrity",
         ))
         idx[0] += 1
 
@@ -463,6 +482,8 @@ def _check_cloaking(soup, findings: list[Finding], idx: list[int]) -> None:
                 "Ensure your CMS or web server serves HTML as UTF-8 without BOM."
             ),
             action_priority="low",
+            confidence="static heuristic",
+            cause_tag="content_integrity",
         ))
         idx[0] += 1
 
@@ -503,9 +524,15 @@ def _check_cloaking(soup, findings: list[Finding], idx: list[int]) -> None:
                     "Hidden text aimed specifically at AI crawlers violates AI system guidelines."
                 ),
                 action_priority="high",
+                confidence="static heuristic",
+                cause_tag="content_integrity",
             ))
             idx[0] += 1
             break  # One finding per category is sufficient
+
+
+# Suffix appended to evidence when partial JS render gap is detected.
+_PARTIAL_JS_NOTE = " (note: page shows signs of partial client-side rendering — verify manually.)"
 
 
 def run(url: str) -> list[Finding]:
@@ -514,18 +541,41 @@ def run(url: str) -> list[Finding]:
     if not validate_url(url):
         return []
 
-    soup = fetch_and_parse(url)
-    if soup is None:
+    result = fetch_html_and_parse(url)
+    if result is None:
         return []
+    html_raw, soup = result
 
     findings: list[Finding] = []
     idx = [1]
 
-    _check_content_quality(soup, findings, idx)
-    _check_freshness(soup, findings, idx)
-    _check_author(soup, findings, idx)
-    _check_trust_signals(soup, url, findings, idx)
-    _check_cloaking(soup, findings, idx)
+    # Detect JS-render gap once at the top
+    js_gap = detect_js_render_gap(html_raw, soup)
+
+    if js_gap and not js_gap.get("partial", False):
+        # Full render gap: content_quality and freshness would be false positives
+        # on an empty SPA shell — emit the JS-render finding instead and skip them.
+        emit_js_render_finding(js_gap, SKILL_PREFIX, findings, idx)
+        # Still run non-content checks (author, trust signals, cloaking)
+        _check_author(soup, findings, idx)
+        _check_trust_signals(soup, url, findings, idx)
+        _check_cloaking(soup, findings, idx)
+    else:
+        if js_gap and js_gap.get("partial", False):
+            # Partial render gap: run all checks but tag findings with reduced confidence
+            emit_js_render_finding(js_gap, SKILL_PREFIX, findings, idx)
+
+        _check_content_quality(soup, findings, idx)
+        _check_freshness(soup, findings, idx)
+        _check_author(soup, findings, idx)
+        _check_trust_signals(soup, url, findings, idx)
+        _check_cloaking(soup, findings, idx)
+
+        # Annotate content-dependent findings with partial-gap note if applicable
+        if js_gap and js_gap.get("partial", False):
+            for f in findings:
+                if f.cause_tag in ("content_quality", "content_freshness"):
+                    f.evidence += _PARTIAL_JS_NOTE
 
     return findings
 

@@ -42,6 +42,19 @@ def fetch_and_parse(url: str) -> Optional[BeautifulSoup]:
     return parse_html(html)
 
 
+def fetch_html_and_parse(url: str) -> Optional[tuple[str, BeautifulSoup]]:
+    """
+    Fetch a URL and return both the raw HTML string and parsed soup.
+    Single HTTP request — avoids the double-fetch anti-pattern.
+    Returns None if the fetch fails.
+    """
+    html = fetch_html(url)
+    if html is None:
+        return None
+    return html, parse_html(html)
+
+
+
 def get_meta_content(soup: BeautifulSoup, name: str) -> Optional[str]:
     """
     Extract content from a <meta name="..."> tag.

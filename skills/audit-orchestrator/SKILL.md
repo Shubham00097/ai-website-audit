@@ -14,9 +14,7 @@ parameters:
     type: string
     required: false
     description: Optional path to save the JSON report (default: audit_report.json)
-allowed_tools:
-  - read_file
-  - execute_python
+allowed-tools: Read Bash
 ---
 
 # Audit Orchestrator

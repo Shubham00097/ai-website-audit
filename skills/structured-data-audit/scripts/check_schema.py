@@ -31,9 +31,10 @@ if _REPO_ROOT not in sys.path:
     sys.path.insert(0, _REPO_ROOT)
 
 from shared.url_utils import normalise_url, validate_url
-from shared.html_utils import fetch_and_parse
+from shared.html_utils import fetch_html_and_parse
 from shared.http_client import head
 from shared.findings import make_finding, Finding
+from shared.js_render_detector import detect_js_render_gap
 
 SKILL_PREFIX = "SCHEMA"
 
@@ -120,6 +121,8 @@ def _check_same_as(same_as: list[str], findings: list[Finding], idx: list[int]) 
                     "Remove sameAs entries entirely if you don't have a real URL to provide."
                 ),
                 action_priority="high",
+                confidence="static heuristic",
+                cause_tag="entity_identity",
             ))
             idx[0] += 1
             continue
@@ -142,6 +145,8 @@ def _check_same_as(same_as: list[str], findings: list[Finding], idx: list[int]) 
                     "Verify the URL is publicly accessible before adding it to your structured data."
                 ),
                 action_priority="high",
+                confidence="live HTTP probe",
+                cause_tag="entity_identity",
             ))
             idx[0] += 1
 
@@ -169,8 +174,52 @@ def _check_entity_disambiguation(same_as: list[str], findings: list[Finding], id
                 "Example: \"sameAs\": \"https://www.linkedin.com/company/your-company\""
             ),
             action_priority="medium",
+            confidence="static heuristic",
+            cause_tag="entity_identity",
         ))
         idx[0] += 1
+
+
+_TEMPLATES_PATH = os.path.join(os.path.dirname(__file__), "..", "references", "schema_templates.json")
+
+# Annotation suffix for findings on pages with detected JS render gaps.
+_JS_GAP_NOTE = (
+    " (note: this page appears to use client-side rendering — structured data may "
+    "be injected at runtime via JavaScript and invisible to static crawlers. Verify manually.)"
+)
+
+
+def _load_template(schema_type: str) -> str | None:
+    """Load a JSON-LD template snippet for B3 copy-pasteable fixes."""
+    try:
+        with open(_TEMPLATES_PATH, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        tmpl = data.get("templates", {}).get(schema_type)
+        if tmpl:
+            return json.dumps(tmpl, indent=2)
+    except Exception:
+        pass
+    return None
+
+
+def _detect_page_type(soup) -> str | None:
+    """
+    Simple heuristic to guess the page's schema type for B3 template selection.
+    Uses og:type meta tag as the primary signal.
+    Returns a schema_templates.json key or None.
+    """
+    from shared.html_utils import get_og_property
+    og_type = get_og_property(soup, "og:type")
+    if og_type:
+        og_type = og_type.lower()
+        if "article" in og_type or "blog" in og_type:
+            return "Article"
+        if "product" in og_type:
+            return "Product"
+        if "video" in og_type:
+            return "VideoObject"
+    # Fallback: default to Organization (safest generic template)
+    return "Organization"
 
 
 def run(url: str) -> list[Finding]:
@@ -179,13 +228,20 @@ def run(url: str) -> list[Finding]:
     if not validate_url(url):
         return []
 
-    soup = fetch_and_parse(url)
-    if soup is None:
+    result = fetch_html_and_parse(url)
+    if result is None:
         return []
+    html_raw, soup = result
 
     findings: list[Finding] = []
     idx = [1]
     ymyl_types = _load_ymyl_types()
+
+    # Correction 3: detect JS-render gap for reduced-confidence annotation.
+    # JSON-LD is usually in static HTML, but sites using GTM or client-side
+    # head-managers may inject it at runtime — we can't assume immunity.
+    js_gap = detect_js_render_gap(html_raw, soup)
+    is_js_gap = js_gap is not None
 
     schemas = _extract_json_ld(soup)
 
@@ -194,21 +250,33 @@ def run(url: str) -> list[Finding]:
     has_rdfa = bool(soup.find(attrs={"typeof": True}))
 
     if not schemas and not has_microdata and not has_rdfa:
+        # B3: include a copy-pasteable template snippet
+        page_type = _detect_page_type(soup)
+        snippet = _load_template(page_type) if page_type else None
+
+        evidence = (
+            "The page contains no JSON-LD (<script type='application/ld+json'>), "
+            "Microdata (itemscope), or RDFa (typeof) structured data. "
+            "AI systems rely on structured data to understand entity type, offerings, and identity."
+        )
+        # Correction 3: annotate if JS render gap detected
+        if is_js_gap:
+            evidence += _JS_GAP_NOTE
+
         findings.append(make_finding(
             skill_prefix=SKILL_PREFIX,
             index=idx[0],
             title="No structured data found on the page",
             severity="high",
-            evidence=(
-                "The page contains no JSON-LD (<script type='application/ld+json'>), "
-                "Microdata (itemscope), or RDFa (typeof) structured data. "
-                "AI systems rely on structured data to understand entity type, offerings, and identity."
-            ),
+            evidence=evidence,
             action_summary=(
                 "Add JSON-LD structured data to your pages. Start with an Organization or WebSite schema. "
                 "See skills/structured-data-audit/references/schema_templates.json for ready-to-adapt templates."
             ),
             action_priority="high",
+            confidence="manual review recommended" if is_js_gap else "static heuristic",
+            cause_tag="entity_identity",
+            snippet=snippet,
         ))
         idx[0] += 1
         return findings
@@ -228,6 +296,8 @@ def run(url: str) -> list[Finding]:
                 "JSON-LD is injected in a <script> tag and does not require HTML attribute changes."
             ),
             action_priority="medium",
+            confidence="static heuristic",
+            cause_tag="entity_identity",
         ))
         idx[0] += 1
 
@@ -257,6 +327,8 @@ def run(url: str) -> list[Finding]:
                     "Remove it if credentials cannot be verified. Consult a legal or medical professional as appropriate."
                 ),
                 action_priority="high",
+                confidence="static heuristic",
+                cause_tag="entity_identity",
             ))
             idx[0] += 1
 
@@ -278,6 +350,8 @@ def run(url: str) -> list[Finding]:
                     "Reference the template in skills/structured-data-audit/references/schema_templates.json."
                 ),
                 action_priority="high",
+                confidence="static heuristic",
+                cause_tag="entity_identity",
             ))
             idx[0] += 1
 
@@ -294,6 +368,15 @@ def run(url: str) -> list[Finding]:
     elif schemas:
         # Has schemas but no sameAs at all
         _check_entity_disambiguation([], findings, idx)
+
+    # Correction 3: if a JS render gap was detected, annotate all findings
+    # with reduced confidence since some structured data may be client-injected.
+    if is_js_gap:
+        for f in findings:
+            if not f.evidence.endswith(_JS_GAP_NOTE):
+                f.evidence += _JS_GAP_NOTE
+            if f.confidence == "static heuristic":
+                f.confidence = "manual review recommended"
 
     return findings
 

@@ -7,8 +7,8 @@ can sort/deduplicate without knowing skill internals.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass, field, asdict
-from typing import Literal, Dict, Any
+from dataclasses import dataclass, field
+from typing import Literal, Dict, Any, Optional
 
 Severity = Literal["critical", "high", "medium", "low"]
 Priority = Literal["high", "medium", "low"]
@@ -25,6 +25,16 @@ SEVERITY_ORDER: Dict[str, int] = {
 class SuggestedAction:
     summary: str
     priority: Priority
+    snippet: Optional[str] = None  # B3: copy-pasteable fix snippet (e.g. JSON-LD template)
+
+    def to_dict(self) -> Dict[str, Any]:
+        d: Dict[str, Any] = {
+            "summary": self.summary,
+            "priority": self.priority,
+        }
+        if self.snippet is not None:
+            d["snippet"] = self.snippet
+        return d
 
 
 @dataclass
@@ -34,18 +44,20 @@ class Finding:
     severity: Severity
     evidence: str
     suggested_action: SuggestedAction
+    confidence: Optional[str] = None  # B4: e.g. "live HTTP probe", "static heuristic"
+    cause_tag: Optional[str] = None   # Correction 4 / B1: root-cause grouping tag
 
     def to_dict(self) -> Dict[str, Any]:
-        return {
+        d: Dict[str, Any] = {
             "id": self.id,
             "title": self.title,
             "severity": self.severity,
             "evidence": self.evidence,
-            "suggested_action": {
-                "summary": self.suggested_action.summary,
-                "priority": self.suggested_action.priority,
-            },
+            "suggested_action": self.suggested_action.to_dict(),
         }
+        if self.confidence is not None:
+            d["confidence"] = self.confidence
+        return d
 
 
 def make_finding(
@@ -56,6 +68,9 @@ def make_finding(
     evidence: str,
     action_summary: str,
     action_priority: Priority,
+    confidence: Optional[str] = None,
+    cause_tag: Optional[str] = None,
+    snippet: Optional[str] = None,
 ) -> Finding:
     """
     Construct a Finding with a deterministic ID.
@@ -72,13 +87,33 @@ def make_finding(
         suggested_action=SuggestedAction(
             summary=action_summary,
             priority=action_priority,
+            snippet=snippet,
         ),
+        confidence=confidence,
+        cause_tag=cause_tag,
     )
 
 
 def sort_findings(findings: list[Finding]) -> list[Finding]:
-    """Sort findings by severity (critical first, low last)."""
-    return sorted(findings, key=lambda f: SEVERITY_ORDER.get(f.severity, 99))
+    """
+    Sort findings deterministically.
+
+    Primary key: severity (critical first, low last).
+    Tiebreakers (A3 fix): skill prefix from ID, then numeric index within skill.
+    This ensures identical output regardless of ThreadPoolExecutor completion order.
+    """
+    def _sort_key(f: Finding) -> tuple:
+        sev = SEVERITY_ORDER.get(f.severity, 99)
+        # Extract skill prefix and index from IDs like "CRAWL-003" or "SCHEMA-001"
+        parts = f.id.rsplit("-", 1)
+        prefix = parts[0] if len(parts) == 2 else f.id
+        try:
+            idx = int(parts[1]) if len(parts) == 2 else 0
+        except ValueError:
+            idx = 0
+        return (sev, prefix, idx)
+
+    return sorted(findings, key=_sort_key)
 
 
 def deduplicate_findings(findings: list[Finding]) -> list[Finding]:
@@ -114,5 +149,7 @@ def renumber_findings(findings: list[Finding]) -> list[Finding]:
             severity=f.severity,
             evidence=f.evidence,
             suggested_action=f.suggested_action,
+            confidence=f.confidence,
+            cause_tag=f.cause_tag,
         ))
     return renumbered

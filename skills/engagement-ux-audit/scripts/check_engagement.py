@@ -33,7 +33,7 @@ if _REPO_ROOT not in sys.path:
     sys.path.insert(0, _REPO_ROOT)
 
 from shared.url_utils import normalise_url, validate_url
-from shared.html_utils import fetch_and_parse, get_meta_content, get_og_property
+from shared.html_utils import fetch_html_and_parse, get_meta_content, get_og_property
 from shared.findings import make_finding, Finding
 from shared.js_render_detector import detect_js_render_gap, emit_js_render_finding
 
@@ -67,6 +67,8 @@ def _check_headings(soup, findings: list[Finding], idx: list[int]) -> None:
                 "The H1 should match or closely relate to the page's <title> tag."
             ),
             action_priority="high",
+            confidence="static heuristic",
+            cause_tag="onsite_orientation",
         ))
         idx[0] += 1
 
@@ -87,6 +89,8 @@ def _check_headings(soup, findings: list[Finding], idx: list[int]) -> None:
                 "If using a CMS, check theme templates for duplicate H1 rendering."
             ),
             action_priority="high",
+            confidence="static heuristic",
+            cause_tag="onsite_orientation",
         ))
         idx[0] += 1
 
@@ -113,6 +117,8 @@ def _check_headings(soup, findings: list[Finding], idx: list[int]) -> None:
                     "Heading levels should increment by one at a time."
                 ),
                 action_priority="medium",
+                confidence="static heuristic",
+                cause_tag="onsite_orientation",
             ))
             idx[0] += 1
             break  # One hierarchy finding is enough
@@ -138,6 +144,8 @@ def _check_meta_description(soup, findings: list[Finding], idx: list[int]) -> No
                 "Avoid marketing language; prefer specific, factual statements."
             ),
             action_priority="medium",
+            confidence="static heuristic",
+            cause_tag="onsite_orientation",
         ))
         idx[0] += 1
     elif len(description) < 50:
@@ -156,6 +164,8 @@ def _check_meta_description(soup, findings: list[Finding], idx: list[int]) -> No
                 "Include specific facts, key offerings, and what makes the page uniquely valuable."
             ),
             action_priority="medium",
+            confidence="static heuristic",
+            cause_tag="onsite_orientation",
         ))
         idx[0] += 1
 
@@ -184,6 +194,8 @@ def _check_scannability(soup, findings: list[Finding], idx: list[int]) -> None:
                 "Lists and tables are particularly well-parsed by AI systems and improve citation quality."
             ),
             action_priority="medium",
+            confidence="static heuristic",
+            cause_tag="content_quality",
         ))
         idx[0] += 1
 
@@ -239,6 +251,8 @@ def _check_cta(soup, findings: list[Finding], idx: list[int]) -> None:
                 "CTAs in the footer alone are insufficient — place them above the fold."
             ),
             action_priority="high",
+            confidence="static heuristic",
+            cause_tag="onsite_orientation",
         ))
         idx[0] += 1
 
@@ -267,6 +281,8 @@ def _check_navigation(soup, findings: list[Finding], idx: list[int]) -> None:
                 "Ensure navigation is visible at the top of the page and accessible on mobile."
             ),
             action_priority="high",
+            confidence="static heuristic",
+            cause_tag="onsite_orientation",
         ))
         idx[0] += 1
 
@@ -290,6 +306,8 @@ def _check_viewport(soup, findings: list[Finding], idx: list[int]) -> None:
                 "<meta name='viewport' content='width=device-width, initial-scale=1'>."
             ),
             action_priority="high",
+            confidence="static heuristic",
+            cause_tag="onsite_orientation",
         ))
         idx[0] += 1
 
@@ -322,6 +340,8 @@ def _check_image_alt(soup, findings: list[Finding], idx: list[int]) -> None:
                 "Alt text should describe what the image shows, not just 'image' or the filename."
             ),
             action_priority="medium",
+            confidence="static heuristic",
+            cause_tag="content_quality",
         ))
         idx[0] += 1
 
@@ -347,6 +367,8 @@ def _check_open_graph(soup, findings: list[Finding], idx: list[int]) -> None:
                 "Use the same value as your <title> tag."
             ),
             action_priority="medium",
+            confidence="static heuristic",
+            cause_tag="onsite_orientation",
         ))
         idx[0] += 1
 
@@ -364,6 +386,8 @@ def _check_open_graph(soup, findings: list[Finding], idx: list[int]) -> None:
                 "Add <meta property='og:description' content='...'> matching your meta description."
             ),
             action_priority="medium",
+            confidence="static heuristic",
+            cause_tag="onsite_orientation",
         ))
         idx[0] += 1
 
@@ -382,6 +406,8 @@ def _check_open_graph(soup, findings: list[Finding], idx: list[int]) -> None:
                 "Use an image at least 1200×630 pixels for best display across platforms."
             ),
             action_priority="low",
+            confidence="static heuristic",
+            cause_tag="onsite_orientation",
         ))
         idx[0] += 1
 
@@ -392,13 +418,11 @@ def run(url: str) -> list[Finding]:
     if not validate_url(url):
         return []
 
-    from shared.http_client import get as _http_get
-    resp = _http_get(url)
-    html_raw = resp.text if resp else ""
-
-    soup = fetch_and_parse(url)
-    if soup is None:
+    from shared.html_utils import fetch_html_and_parse as _fhap
+    result = _fhap(url)
+    if result is None:
         return []
+    html_raw, soup = result
 
     findings: list[Finding] = []
     idx = [1]

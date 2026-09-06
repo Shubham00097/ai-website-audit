@@ -86,6 +86,66 @@ def _run_skill(name: str, run_fn, url: str) -> tuple[str, list[Finding], Optiona
     except Exception as exc:
         return name, [], str(exc)
 
+# Friendly labels for cause_tag values (B1)
+_CAUSE_LABELS = {
+    "crawler_access": "AI Crawler Access",
+    "entity_identity": "Structured Data & Entity Identity",
+    "content_quality": "Content Quality & Citability",
+    "content_freshness": "Content Freshness",
+    "content_integrity": "Content Integrity (Cloaking / Injection)",
+    "trust_signals": "Trust & Authority Signals",
+    "onsite_orientation": "On-Site Orientation & UX",
+    "js_render_gap": "JavaScript Render Gap",
+}
+
+
+def _cluster_root_causes(findings: list[Finding]) -> list[dict]:
+    """
+    B1: Group findings by their cause_tag into root-cause clusters.
+    Deterministic — groups by explicit tag, no title-string matching.
+    """
+    from collections import OrderedDict
+    clusters: OrderedDict[str, list[str]] = OrderedDict()
+    for f in findings:
+        tag = f.cause_tag or "uncategorised"
+        clusters.setdefault(tag, []).append(f.id)
+    return [
+        {
+            "cause": tag,
+            "label": _CAUSE_LABELS.get(tag, tag.replace("_", " ").title()),
+            "finding_ids": ids,
+            "count": len(ids),
+        }
+        for tag, ids in clusters.items()
+    ]
+
+
+def _generate_headline(
+    findings: list[Finding],
+    root_causes: list[dict],
+    severity_counts: dict,
+) -> str:
+    """B2: One-sentence executive summary from dominant root cause + severity."""
+    total = len(findings)
+    if total == 0:
+        return "No issues found — the site appears well-optimised for AI discoverability."
+
+    # Dominant cause = cluster with most findings
+    dominant = max(root_causes, key=lambda c: c["count"])
+    label = dominant["label"]
+
+    crits = severity_counts.get("critical", 0)
+    highs = severity_counts.get("high", 0)
+
+    if crits > 0:
+        urgency = f"{crits} critical"
+    elif highs > 0:
+        urgency = f"{highs} high-severity"
+    else:
+        urgency = f"{total} total"
+
+    return f"{urgency} finding(s) detected, primarily in {label}."
+
 
 def _build_report(
     url: str,
@@ -101,13 +161,18 @@ def _build_report(
         if f.severity in severity_counts:
             severity_counts[f.severity] += 1
 
+    root_causes = _cluster_root_causes(findings)
+    headline = _generate_headline(findings, root_causes, severity_counts)
+
     return {
         "site": domain,
         "audited_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "summary": {
+            "headline": headline,
             "total_findings": len(findings),
             **severity_counts,
         },
+        "root_causes": root_causes,
         "findings": [f.to_dict() for f in findings],
         "metadata": {
             "skills_run": skills_run,
@@ -115,6 +180,7 @@ def _build_report(
             "duration_seconds": round(duration, 2),
         },
     }
+
 
 
 def audit(url: str) -> dict:
@@ -204,6 +270,10 @@ def main():
         "--stdout-only", action="store_true",
         help="Print to stdout only, do not save a file",
     )
+    parser.add_argument(
+        "--html", action="store_true",
+        help="Also generate an HTML report (audit_report.html)",
+    )
     args = parser.parse_args()
 
     report = audit(args.url)
@@ -220,6 +290,16 @@ def main():
             f.write(json.dumps(report, indent=2, ensure_ascii=False))
         print(f"\n[*] Report saved to: {output_path}", file=sys.stderr)
 
+    # B5: HTML report
+    if args.html:
+        from render_html import render_html_report
+        html_path = os.path.splitext(os.path.abspath(args.output))[0] + ".html"
+        html_content = render_html_report(report)
+        with open(html_path, "w", encoding="utf-8") as f:
+            f.write(html_content)
+        print(f"[*] HTML report saved to: {html_path}", file=sys.stderr)
+
 
 if __name__ == "__main__":
     main()
+
