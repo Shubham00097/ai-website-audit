@@ -28,16 +28,35 @@ py skills/audit-orchestrator/scripts/orchestrator.py https://yoursite.com --pret
 ```
 brand-ai-readiness-audit/
 ├── marketplace.json                    # Marketplace manifest (entrypoint declared)
-├── requirements.txt                    # requests, beautifulsoup4
+├── requirements.txt                    # requests, beautifulsoup4, python-dateutil
+├── requirements-dev.txt                # pytest, jsonschema (test dependencies)
 ├── make_submission.ps1                 # Submission packaging script
 ├── README.md
 │
 ├── shared/                             # Shared utilities (no duplication)
+│   ├── __init__.py
 │   ├── http_client.py                  # GET/HEAD with connection pooling, per-host rate limiting
 │   ├── html_utils.py                   # HTML fetching and BeautifulSoup helpers
 │   ├── url_utils.py                    # URL normalisation and validation
 │   ├── findings.py                     # Finding dataclass (with cause_tag, confidence), sort, dedup
 │   └── js_render_detector.py           # Static JS-render gap detection (SPA/CSR awareness)
+│
+├── tests/                              # 44 automated tests (pytest)
+│   ├── fixtures/                       # Synthetic HTML pages for unit tests
+│   │   ├── modal_page.html
+│   │   ├── rich_page.html
+│   │   ├── spa_shell.html
+│   │   └── stale_page.html
+│   ├── test_citability_cloaking.py     # CSS-hidden text, comment injection, zero-width chars
+│   ├── test_citability_js_gap.py       # SPA content suppression vs SSR
+│   ├── test_date_parsing.py            # ISO 8601 with TZ offsets, staleness detection
+│   ├── test_dedup.py                   # Cross-skill deduplication, severity promotion
+│   ├── test_determinism.py             # Sort stability, renumbered F-IDs
+│   ├── test_html_utils.py              # Soup helpers, noscript exclusion
+│   ├── test_js_render_detector.py      # Framework detection (Next.js, React, Angular)
+│   ├── test_orchestrator_partial_failure.py  # Graceful degradation + JSON Schema validation
+│   ├── test_rate_limiting.py           # Per-host throttle, cross-host independence
+│   └── test_schema_js_gap.py           # Structured data + JS-render gap interaction
 │
 └── skills/
     ├── audit-orchestrator/             # [ENTRYPOINT] Composes all skills
@@ -139,42 +158,80 @@ brand-ai-readiness-audit/
 
 ```json
 {
-  "site": "example.com",
-  "audited_at": "2026-09-03T20:07:03Z",
+  "site": "vercel.com",
+  "audited_at": "2026-09-06T12:08:26Z",
   "summary": {
-    "headline": "3 high-severity finding(s) detected, primarily in On-Site Orientation & UX.",
-    "total_findings": 12,
+    "headline": "1 high-severity finding(s) detected, primarily in Content Freshness.",
+    "total_findings": 3,
     "critical": 0,
-    "high": 3,
-    "medium": 8,
-    "low": 1
+    "high": 1,
+    "medium": 2,
+    "low": 0
   },
   "root_causes": [
     {
+      "cause": "content_freshness",
+      "label": "Content Freshness",
+      "finding_ids": ["F-001"],
+      "count": 1
+    },
+    {
+      "cause": "content_quality",
+      "label": "Content Quality & Citability",
+      "finding_ids": ["F-002"],
+      "count": 1
+    },
+    {
       "cause": "onsite_orientation",
       "label": "On-Site Orientation & UX",
-      "finding_ids": ["F-001", "F-002", "F-003"],
-      "count": 3
+      "finding_ids": ["F-003"],
+      "count": 1
     }
   ],
   "findings": [
     {
       "id": "F-001",
-      "title": "No structured data found on the page",
+      "title": "No content publication date found",
       "severity": "high",
-      "evidence": "The page contains no JSON-LD, Microdata, or RDFa...",
+      "evidence": "No datePublished, dateModified, article:published_time, ...",
       "confidence": "static heuristic",
       "suggested_action": {
-        "summary": "Add JSON-LD structured data. Start with Organization schema...",
-        "priority": "high",
-        "snippet": "{ \"@context\": \"https://schema.org\", ... }"
+        "summary": "Add datePublished and dateModified to your JSON-LD structured data...",
+        "priority": "high"
+      }
+    },
+    {
+      "id": "F-002",
+      "title": "No substantive content blocks found (≥20 words)",
+      "severity": "medium",
+      "evidence": "The page has no paragraphs with 20 or more words...",
+      "confidence": "static heuristic",
+      "suggested_action": {
+        "summary": "Add substantive paragraph content that directly answers user questions...",
+        "priority": "medium"
+      }
+    },
+    {
+      "id": "F-003",
+      "title": "Meta description is too short (45 chars)",
+      "severity": "medium",
+      "evidence": "Meta description: 'The autonomous stack for every app and agent.' ...",
+      "confidence": "static heuristic",
+      "suggested_action": {
+        "summary": "Expand the meta description to 50–160 characters...",
+        "priority": "medium"
       }
     }
   ],
   "metadata": {
-    "skills_run": ["bot-crawlability-audit", "structured-data-audit", ...],
+    "skills_run": [
+      "bot-crawlability-audit",
+      "citability-freshness-audit",
+      "engagement-ux-audit",
+      "structured-data-audit"
+    ],
     "skills_failed": [],
-    "duration_seconds": 4.2
+    "duration_seconds": 12.82
   }
 }
 ```
@@ -214,7 +271,7 @@ py skills/engagement-ux-audit/scripts/check_engagement.py https://example.com
 - **Generalisable**: No site-specific hardcoding. Works on any unseen domain.
 - **SPA-aware**: Detects JS-render gaps and suppresses false-positive findings on client-side-rendered pages.
 - **Rate-limited**: Per-host politeness delay (0.25s) to avoid triggering 429s.
-- **Fast**: All 4 skills run in parallel. Typical audit 10–60 seconds depending on site response times.
+- **Fast**: All 4 skills run in parallel. Typical audit completes in 5–13 seconds (measured across vercel.com, shopify.com, cloudflare.com, and others).
 
 ---
 
