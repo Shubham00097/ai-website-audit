@@ -4,7 +4,8 @@ version: "1.0.0"
 description: >
   Audits on-site visitor engagement and orientation quality.
   Checks heading hierarchy, content readability, CTA presence,
-  navigation, Open Graph metadata, and mobile viewport.
+  navigation, Open Graph metadata, mobile viewport, and JS-render gaps
+  (detects pages where content is client-side rendered and invisible to AI bots).
 role: sub-skill
 parameters:
   - name: url
@@ -13,7 +14,7 @@ parameters:
     description: The website URL to audit
 allowed_tools:
   - read_file
-  - execute_python
+  - http_request
 ---
 
 # Engagement & UX Audit

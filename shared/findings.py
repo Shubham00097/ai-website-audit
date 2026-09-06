@@ -83,12 +83,17 @@ def sort_findings(findings: list[Finding]) -> list[Finding]:
 
 def deduplicate_findings(findings: list[Finding]) -> list[Finding]:
     """
-    Remove duplicate findings based on title similarity.
+    Remove duplicate findings based on (title, evidence-prefix) similarity.
     Preserves the highest-severity instance when duplicates exist.
+
+    Uses a composite key of title + first 60 chars of evidence to distinguish
+    findings that have similar titles but genuinely different evidence
+    (e.g., two different schema types missing different required fields).
     """
     seen: Dict[str, Finding] = {}
     for f in findings:
-        key = f.title.lower().strip()
+        # Composite key: full normalised title + evidence prefix
+        key = f"{f.title.lower().strip()}::{f.evidence[:60].lower().strip()}"
         if key not in seen:
             seen[key] = f
         else:

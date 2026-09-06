@@ -172,6 +172,10 @@ def audit(url: str) -> dict:
     duration = time.time() - start_time
     print(f"[*] Audit complete in {duration:.1f}s — {len(all_findings)} total finding(s)", file=sys.stderr)
 
+    # Sort for determinism — thread completion order is non-deterministic
+    skills_run.sort()
+    skills_failed.sort()
+
     return _build_report(url, all_findings, skills_run, skills_failed, duration)
 
 

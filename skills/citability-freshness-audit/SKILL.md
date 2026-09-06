@@ -13,7 +13,7 @@ parameters:
     description: The website URL to audit
 allowed_tools:
   - read_file
-  - execute_python
+  - http_request
 ---
 
 # Citability & Freshness Audit

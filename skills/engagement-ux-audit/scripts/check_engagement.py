@@ -35,6 +35,7 @@ if _REPO_ROOT not in sys.path:
 from shared.url_utils import normalise_url, validate_url
 from shared.html_utils import fetch_and_parse, get_meta_content, get_og_property
 from shared.findings import make_finding, Finding
+from shared.js_render_detector import detect_js_render_gap, emit_js_render_finding
 
 SKILL_PREFIX = "UX"
 
@@ -188,14 +189,38 @@ def _check_scannability(soup, findings: list[Finding], idx: list[int]) -> None:
 
 
 def _check_cta(soup, findings: list[Finding], idx: list[int]) -> None:
-    """Check for the presence of a clear Call to Action."""
-    # Check links and buttons for action verbs
-    cta_elements = soup.find_all(["a", "button"])
-    has_cta = any(CTA_VERBS.search(el.get_text(strip=True)) for el in cta_elements)
+    """
+    Check for the presence of a clear Call to Action.
 
-    # Also check form submit buttons
+    Heuristic improvements (fix A11):
+    - Excludes CTAs found only inside <footer> — footer nav links with action
+      verbs ("View cart", "Read terms") are not page-level CTAs.
+    - Requires minimum 2 words in CTA text to avoid single-word false positives.
+    - A <form> outside the footer still counts as a valid CTA signal.
+    """
+    footer = soup.find("footer")
+
+    def _is_in_footer(el) -> bool:
+        """Return True if el is a descendant of the footer."""
+        return footer is not None and footer in el.parents
+
+    def _is_valid_cta(el) -> bool:
+        """True if element has an action verb and at least 2 words of text."""
+        text = el.get_text(strip=True)
+        words = text.split()
+        return len(words) >= 2 and CTA_VERBS.search(text) is not None
+
+    # Check links and buttons outside footer
+    cta_elements = soup.find_all(["a", "button"])
+    has_cta = any(
+        _is_valid_cta(el) and not _is_in_footer(el)
+        for el in cta_elements
+    )
+
+    # Check for a form outside the footer (contact form, signup form, etc.)
     if not has_cta:
-        has_cta = bool(soup.find("form"))
+        forms = soup.find_all("form")
+        has_cta = any(not _is_in_footer(f) for f in forms)
 
     if not has_cta:
         findings.append(make_finding(
@@ -204,13 +229,14 @@ def _check_cta(soup, findings: list[Finding], idx: list[int]) -> None:
             title="No clear Call to Action (CTA) detected on the page",
             severity="high",
             evidence=(
-                "No <a>, <button>, or <form> element with an action verb (Get, Start, Download, "
-                "Try, Buy, Sign up, Contact, Book, etc.) was found. "
+                "No <a>, <button>, or <form> element with a 2+ word action verb (Get Started, "
+                "Sign Up, Contact Us, Book a Demo, etc.) was found outside the page footer. "
                 "Visitors arriving from AI referrals need a clear next step."
             ),
             action_summary=(
-                "Add a prominent CTA element with an action verb that tells the visitor what to do next. "
-                "Example: <a href='/contact'>Get in Touch</a> or <button>Start Free Trial</button>."
+                "Add a prominent CTA element with a clear action phrase in the page body or header. "
+                "Example: <a href='/contact'>Get in Touch</a> or <button>Start Free Trial</button>. "
+                "CTAs in the footer alone are insufficient — place them above the fold."
             ),
             action_priority="high",
         ))
@@ -366,12 +392,21 @@ def run(url: str) -> list[Finding]:
     if not validate_url(url):
         return []
 
+    from shared.http_client import get as _http_get
+    resp = _http_get(url)
+    html_raw = resp.text if resp else ""
+
     soup = fetch_and_parse(url)
     if soup is None:
         return []
 
     findings: list[Finding] = []
     idx = [1]
+
+    # Detect JS-render gap first — if detected, annotate content-dependent findings
+    js_gap = detect_js_render_gap(html_raw, soup)
+    if js_gap:
+        emit_js_render_finding(js_gap, SKILL_PREFIX, findings, idx)
 
     _check_headings(soup, findings, idx)
     _check_meta_description(soup, findings, idx)

@@ -64,14 +64,17 @@ def get_og_property(soup: BeautifulSoup, prop: str) -> Optional[str]:
 def get_all_text_blocks(soup: BeautifulSoup, min_words: int = 20) -> list[str]:
     """
     Extract all paragraph text blocks with at least min_words words.
-    Strips script/style content.
-    """
-    # Remove script and style tags
-    for tag in soup(["script", "style", "noscript"]):
-        tag.decompose()
 
+    NOTE: Does NOT mutate the soup tree (no decompose/extract). This is
+    intentional — the same soup object is reused by multiple check functions
+    (e.g. _check_freshness needs <script type="application/ld+json"> intact).
+    Instead we skip <p> tags that are descendants of script/style/noscript.
+    """
     blocks = []
     for p in soup.find_all("p"):
+        # Skip paragraphs that are nested inside non-content tags
+        if p.find_parent(["script", "style", "noscript", "head"]):
+            continue
         text = p.get_text(separator=" ", strip=True)
         if len(text.split()) >= min_words:
             blocks.append(text)

@@ -1,0 +1,26 @@
+<!-- Modal page fixture: legitimate display:none UI elements (should NOT trigger cloaking) -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Product Page With Modal</title>
+</head>
+<body>
+  <nav><a href="/">Home</a><a href="/products">Products</a><a href="/contact">Contact</a></nav>
+  <h1>Widget Pro</h1>
+  <!-- Hamburger menu - hidden on desktop, legitimate display:none -->
+  <div id="mobile-menu" style="display: none;">
+    <ul><li><a href="/">Home</a></li><li><a href="/about">About</a></li><li><a href="/contact">Contact Us</a></li></ul>
+  </div>
+  <!-- Modal dialog - legitimate hidden UI component -->
+  <div id="contact-modal" role="dialog" aria-modal="true" style="display: none;">
+    <h2>Contact Our Team</h2>
+    <p>Fill out the form below and one of our representatives will contact you within 24 hours to discuss your requirements and provide a customised quote for your project.</p>
+    <form><input type="text" name="name"><input type="email" name="email"><button type="submit">Send Message</button></form>
+  </div>
+  <main>
+    <p>The Widget Pro is our flagship industrial component, manufactured to ISO 9001 standards with a proven track record across 500+ enterprise deployments.</p>
+    <a href="/quote">Get a Free Quote</a>
+  </main>
+</body>
+</html>

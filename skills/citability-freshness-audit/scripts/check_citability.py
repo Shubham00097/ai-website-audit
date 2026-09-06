@@ -5,9 +5,9 @@ Entry point for the citability-freshness-audit skill.
 
 Checks:
   1. Content block quality — answer-like, self-contained, factually dense
-  2. Content freshness — datePublished/dateModified age
+  2. Content freshness — datePublished/dateModified age (via dateutil for robustness)
   3. Author attribution — byline presence
-  4. Trust signals — outbound citations
+  4. Trust signals — outbound citations (root-domain-aware comparison)
   5. AI cloaking / prompt injection detection
 
 Returns a list of Finding objects.
@@ -25,6 +25,7 @@ import sys
 import argparse
 from datetime import datetime, timezone
 from typing import Optional
+from urllib.parse import urlparse
 
 _REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
 if _REPO_ROOT not in sys.path:
@@ -33,6 +34,13 @@ if _REPO_ROOT not in sys.path:
 from shared.url_utils import normalise_url, validate_url, get_domain
 from shared.html_utils import fetch_and_parse, get_meta_content, get_all_text_blocks
 from shared.findings import make_finding, Finding
+
+# Import dateutil for robust ISO 8601 parsing (handles TZ offsets, Z-suffix, etc.)
+try:
+    from dateutil import parser as _dateutil_parser
+    _HAS_DATEUTIL = True
+except ImportError:
+    _HAS_DATEUTIL = False
 
 SKILL_PREFIX = "CITE"
 _SIG_PATH = os.path.join(os.path.dirname(__file__), "..", "references", "injection_signatures.json")
@@ -48,8 +56,25 @@ _PROMO_STARTERS = re.compile(
     r"^(We |Our |At |Welcome|Join|Discover|Experience|Transform|Unlock|Revolutionize|Get started)",
     re.IGNORECASE,
 )
-# Zero-width Unicode characters (AI cloaking)
-_ZERO_WIDTH_CHARS = {"\u200b", "\u200c", "\u200d", "\u2060", "\ufeff"}
+
+# Zero-width Unicode characters used for AI cloaking.
+# NOTE: \ufeff (UTF-8 BOM) intentionally excluded — it is commonly inserted by
+# Windows editors/CMSs and has no cloaking intent. It is checked separately.
+_ZERO_WIDTH_CHARS = {"\u200b", "\u200c", "\u200d", "\u2060"}
+
+# UTF-8 BOM — checked separately as a lower-severity encoding signal
+_UTF8_BOM = "\ufeff"
+
+# CSS hidden-text patterns that may indicate cloaking (inline style only)
+_HIDDEN_CSS_PATTERN = re.compile(
+    r"display\s*:\s*none|visibility\s*:\s*hidden|opacity\s*:\s*0"
+    r"|font-size\s*:\s*0|height\s*:\s*0",
+    re.IGNORECASE,
+)
+
+# Elements that legitimately use display:none — skip these to avoid false positives
+_SAFE_HIDDEN_TAGS = {"template", "dialog", "details"}
+_SAFE_HIDDEN_ROLES = {"dialog", "tooltip", "alertdialog", "menu", "listbox"}
 
 
 def _load_injection_signatures() -> list[dict]:
@@ -149,11 +174,50 @@ def _check_content_quality(soup, findings: list[Finding], idx: list[int]) -> Non
         idx[0] += 1
 
 
+def _parse_date(date_str: str) -> Optional[datetime]:
+    """
+    Parse a date string using dateutil (preferred) or stdlib fallback.
+    Returns a timezone-aware datetime or None if unparseable.
+    """
+    if _HAS_DATEUTIL:
+        try:
+            dt = _dateutil_parser.parse(date_str)
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            return dt
+        except Exception:
+            return None
+    else:
+        # Stdlib fallback — explicit format list without truncation (fix for A13)
+        DATE_FORMATS = [
+            ("%Y-%m-%dT%H:%M:%S%z",),   # ISO 8601 with TZ offset (+HH:MM)
+            ("%Y-%m-%dT%H:%M:%SZ",),     # UTC Z-suffix (non-standard but common)
+            ("%Y-%m-%dT%H:%M:%S",),      # No TZ
+            ("%Y-%m-%d",),               # Date only
+        ]
+        # Python <3.7 doesn't support %z with colon — try stripping colon from TZ
+        clean = date_str.strip()
+        # Normalise Z suffix
+        if clean.endswith("Z"):
+            clean = clean[:-1] + "+00:00"
+        for (fmt,) in DATE_FORMATS:
+            try:
+                dt = datetime.strptime(clean, fmt)
+                if dt.tzinfo is None:
+                    dt = dt.replace(tzinfo=timezone.utc)
+                return dt
+            except ValueError:
+                continue
+        return None
+
+
 def _check_freshness(soup, findings: list[Finding], idx: list[int]) -> None:
     """Check content freshness via meta dates and structured data."""
     now = datetime.now(timezone.utc)
 
-    # Try structured data dates first
+    # Try structured data dates first (JSON-LD)
+    # NOTE: This works correctly because get_all_text_blocks no longer
+    # decompose()s script tags from the shared soup object.
     date_str: Optional[str] = None
     for tag in soup.find_all("script", type="application/ld+json"):
         try:
@@ -200,40 +264,49 @@ def _check_freshness(soup, findings: list[Finding], idx: list[int]) -> None:
             return
 
     if date_str:
-        try:
-            # Parse various date formats
-            for fmt in ("%Y-%m-%dT%H:%M:%S%z", "%Y-%m-%dT%H:%M:%SZ", "%Y-%m-%d"):
-                try:
-                    date = datetime.strptime(date_str[:19], fmt[:len(fmt)])
-                    if date.tzinfo is None:
-                        date = date.replace(tzinfo=timezone.utc)
-                    break
-                except ValueError:
-                    continue
-            else:
-                return
+        date = _parse_date(date_str)
+        if date is None:
+            return  # Unparseable — skip rather than false-flag
 
-            age_days = (now - date).days
-            if age_days > 545:  # ~18 months
-                findings.append(make_finding(
-                    skill_prefix=SKILL_PREFIX,
-                    index=idx[0],
-                    title=f"Content is stale — last modified {age_days // 30} months ago",
-                    severity="high",
-                    evidence=(
-                        f"The page's last modification date is '{date_str}' "
-                        f"({age_days} days ago, approximately {age_days // 30} months). "
-                        "AI systems deprioritise stale content, especially for time-sensitive topics."
-                    ),
-                    action_summary=(
-                        "Update the page content and refresh the dateModified field in your JSON-LD. "
-                        "Even minor content updates reset the freshness signal for AI systems."
-                    ),
-                    action_priority="high",
-                ))
-                idx[0] += 1
-        except Exception:
-            pass
+        age_days = (now - date).days
+        if age_days > 545:  # ~18 months
+            findings.append(make_finding(
+                skill_prefix=SKILL_PREFIX,
+                index=idx[0],
+                title=f"Content is stale — last modified {age_days // 30} months ago",
+                severity="high",
+                evidence=(
+                    f"The page's last modification date is '{date_str}' "
+                    f"({age_days} days ago, approximately {age_days // 30} months). "
+                    "AI systems deprioritise stale content, especially for time-sensitive topics."
+                ),
+                action_summary=(
+                    "Update the page content and refresh the dateModified field in your JSON-LD. "
+                    "Even minor content updates reset the freshness signal for AI systems."
+                ),
+                action_priority="high",
+            ))
+            idx[0] += 1
+    else:
+        # No date signal found at all — flag as high (AI prefers dateable content)
+        findings.append(make_finding(
+            skill_prefix=SKILL_PREFIX,
+            index=idx[0],
+            title="No content publication date found",
+            severity="high",
+            evidence=(
+                "No datePublished, dateModified, article:published_time, article:modified_time "
+                "meta tag, or JSON-LD date field was detected. "
+                "AI systems cannot assess content freshness without a publication date signal."
+            ),
+            action_summary=(
+                "Add datePublished and dateModified to your JSON-LD structured data: "
+                "\"datePublished\": \"2026-01-15\", \"dateModified\": \"2026-09-01\". "
+                "Also add <meta property='article:modified_time' content='...'>."
+            ),
+            action_priority="high",
+        ))
+        idx[0] += 1
 
 
 def _check_author(soup, findings: list[Finding], idx: list[int]) -> None:
@@ -253,7 +326,7 @@ def _check_author(soup, findings: list[Finding], idx: list[int]) -> None:
     byline_patterns = [
         soup.find(class_=re.compile(r"author|byline", re.I)),
         soup.find(attrs={"rel": "author"}),
-        soup.find("span", text=re.compile(r"By\s+[A-Z]", re.I)),
+        soup.find("span", string=re.compile(r"By\s+[A-Z]", re.I)),
     ]
     if any(byline_patterns):
         return
@@ -277,13 +350,28 @@ def _check_author(soup, findings: list[Finding], idx: list[int]) -> None:
     idx[0] += 1
 
 
+def _get_root_domain(netloc: str) -> str:
+    """Strip www. prefix and return the root domain for comparison."""
+    return netloc.lower().lstrip("www.")
+
+
 def _check_trust_signals(soup, url: str, findings: list[Finding], idx: list[int]) -> None:
-    """Check for outbound citation links as trust signals."""
-    domain = get_domain(url)
-    outbound_links = [
-        a for a in soup.find_all("a", href=True)
-        if a["href"].startswith("http") and domain not in a["href"]
-    ]
+    """
+    Check for outbound citation links as trust signals.
+    Uses root-domain comparison (strips www.) to avoid false positives with
+    subdomains and false negatives with partial-string domain matches (fix A12).
+    """
+    domain_root = _get_root_domain(get_domain(url))
+    outbound_links = []
+    for a in soup.find_all("a", href=True):
+        href = a["href"]
+        if not href.startswith("http"):
+            continue
+        link_netloc = urlparse(href).netloc
+        link_root = _get_root_domain(link_netloc)
+        if link_root and link_root != domain_root:
+            outbound_links.append(a)
+
     if len(outbound_links) < 2:
         findings.append(make_finding(
             skill_prefix=SKILL_PREFIX,
@@ -310,7 +398,8 @@ def _check_cloaking(soup, findings: list[Finding], idx: list[int]) -> None:
     signatures = _load_injection_signatures()
 
     # Check HTML comments for LLM instructions
-    for comment in soup.find_all(string=lambda text: isinstance(text, __import__("bs4").Comment)):
+    from bs4 import Comment
+    for comment in soup.find_all(string=lambda text: isinstance(text, Comment)):
         for sig in signatures:
             if sig.get("context") == "html_comment" and sig.get("pattern"):
                 if re.search(sig["pattern"], str(comment)):
@@ -334,7 +423,7 @@ def _check_cloaking(soup, findings: list[Finding], idx: list[int]) -> None:
                     idx[0] += 1
                     break
 
-    # Check for zero-width Unicode in visible text
+    # Check for zero-width Unicode in visible text (excludes BOM — see below)
     page_text = soup.get_text()
     found_zw = [c for c in _ZERO_WIDTH_CHARS if c in page_text]
     if found_zw:
@@ -344,43 +433,79 @@ def _check_cloaking(soup, findings: list[Finding], idx: list[int]) -> None:
             title="Zero-width Unicode characters detected in page text",
             severity="critical",
             evidence=(
-                f"Found {len(found_zw)} type(s) of zero-width Unicode character(s) embedded in visible text. "
+                f"Found {len(found_zw)} type(s) of zero-width Unicode character(s) "
+                f"(U+{', U+'.join(f'{ord(c):04X}' for c in found_zw)}) embedded in visible text. "
                 "These invisible characters are a known AI content manipulation technique and "
                 "may trigger AI system content quality filters."
             ),
             action_summary=(
-                "Search for and remove zero-width Unicode characters (U+200B, U+200C, U+200D, U+2060, U+FEFF) "
+                "Search for and remove zero-width Unicode characters (U+200B, U+200C, U+200D, U+2060) "
                 "from your page content. These may have been introduced by CMS plugins or copy-paste from word processors."
             ),
             action_priority="high",
         ))
         idx[0] += 1
 
-    # Check for CSS-hidden text blocks
-    import re as _re
-    hidden_elements = soup.find_all(style=_re.compile(r"display\s*:\s*none|visibility\s*:\s*hidden", _re.I))
+    # Check for UTF-8 BOM separately — lower severity, encoding signal not cloaking
+    if _UTF8_BOM in page_text:
+        findings.append(make_finding(
+            skill_prefix=SKILL_PREFIX,
+            index=idx[0],
+            title="UTF-8 BOM detected in page content",
+            severity="low",
+            evidence=(
+                "A UTF-8 Byte Order Mark (U+FEFF) was detected in the page text. "
+                "While not a cloaking technique, it indicates legacy encoding practices "
+                "that may cause issues with some AI parsing systems."
+            ),
+            action_summary=(
+                "Remove the UTF-8 BOM from your HTML files. "
+                "Ensure your CMS or web server serves HTML as UTF-8 without BOM."
+            ),
+            action_priority="low",
+        ))
+        idx[0] += 1
+
+    # Check for CSS-hidden text blocks (potential cloaking).
+    # Threshold raised to 30 words (from 8) to avoid false positives on
+    # navigation menus, modals, accordions, and other legitimate UI patterns.
+    # Legitimate UI elements (template, dialog, aria-modal) are excluded.
+    hidden_elements = soup.find_all(style=_HIDDEN_CSS_PATTERN)
     for el in hidden_elements:
+        # Skip known-safe UI patterns
+        if el.name in _SAFE_HIDDEN_TAGS:
+            continue
+        role = el.get("role", "")
+        if role in _SAFE_HIDDEN_ROLES:
+            continue
+        if el.get("aria-modal") == "true":
+            continue
+
         text = el.get_text(strip=True)
-        if len(text.split()) >= 8:
+        word_count = len(text.split())
+        if word_count >= 30:
             findings.append(make_finding(
                 skill_prefix=SKILL_PREFIX,
                 index=idx[0],
                 title="CSS-hidden text block detected (potential cloaking)",
-                severity="critical",
+                severity="high",
                 evidence=(
-                    f"Found a hidden element (display:none or visibility:hidden) containing {len(text.split())} words. "
+                    f"Found a hidden element ({el.name}) with style '{el.get('style', '')[:60]}' "
+                    f"containing {word_count} words. "
                     f"Excerpt: '{text[:80]}'. "
-                    "Hidden text aimed at AI crawlers is a cloaking technique that violates AI system guidelines."
+                    "Note: this may be a legitimate modal, accordion, or off-canvas element — "
+                    "manual review is recommended before taking action."
                 ),
                 action_summary=(
-                    "Review and remove the CSS-hidden text block. "
+                    "Review the CSS-hidden text block. "
                     "If the content is legitimate (e.g., a modal or accordion), "
-                    "ensure it is not keyword-stuffed and is accessible to screen readers as well."
+                    "ensure it is not keyword-stuffed and is accessible to screen readers. "
+                    "Hidden text aimed specifically at AI crawlers violates AI system guidelines."
                 ),
                 action_priority="high",
             ))
             idx[0] += 1
-            break  # One finding for this category is sufficient
+            break  # One finding per category is sufficient
 
 
 def run(url: str) -> list[Finding]:

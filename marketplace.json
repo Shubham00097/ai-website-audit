@@ -2,38 +2,47 @@
   "name": "brand-ai-readiness-audit",
   "version": "1.0.0",
   "description": "Audits any website for AI discoverability and on-site engagement. Accepts a URL, runs read-only checks across 4 skill domains, and emits a structured JSON findings report.",
+  "author": "Shubham Kumar",
+  "homepage": "https://github.com/Shubham00097/ai-website-audit",
+  "tags": ["ai", "seo", "audit", "crawlability", "structured-data", "agentskills"],
   "license": "MIT",
   "entrypoint": "skills/audit-orchestrator",
+  "allowed_tools": ["read_file", "http_request"],
   "skills": [
     {
       "name": "audit-orchestrator",
       "path": "skills/audit-orchestrator",
       "role": "entrypoint",
+      "entrypoint": true,
       "description": "Composes all sub-skills and emits the final JSON audit report."
     },
     {
       "name": "bot-crawlability-audit",
       "path": "skills/bot-crawlability-audit",
       "role": "sub-skill",
+      "entrypoint": false,
       "description": "Audits AI crawler access: robots.txt, live bot probes, llms.txt, WAF detection."
     },
     {
       "name": "structured-data-audit",
       "path": "skills/structured-data-audit",
       "role": "sub-skill",
+      "entrypoint": false,
       "description": "Validates JSON-LD schema.org markup, entity identity, and sameAs disambiguation."
     },
     {
       "name": "citability-freshness-audit",
       "path": "skills/citability-freshness-audit",
       "role": "sub-skill",
+      "entrypoint": false,
       "description": "Scores content extractability, freshness, trust signals, and detects AI cloaking."
     },
     {
       "name": "engagement-ux-audit",
       "path": "skills/engagement-ux-audit",
       "role": "sub-skill",
-      "description": "Checks heading hierarchy, readability, CTA presence, and Open Graph metadata."
+      "entrypoint": false,
+      "description": "Checks heading hierarchy, readability, CTA, Open Graph metadata. Detects JS-render gaps."
     }
   ],
   "runtime": "python3",
