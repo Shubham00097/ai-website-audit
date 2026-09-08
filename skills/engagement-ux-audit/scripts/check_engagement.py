@@ -34,8 +34,13 @@ if _REPO_ROOT not in sys.path:
 
 from shared.url_utils import normalise_url, validate_url
 from shared.html_utils import fetch_html_and_parse, get_meta_content, get_og_property
-from shared.findings import make_finding, Finding
-from shared.js_render_detector import detect_js_render_gap, emit_js_render_finding
+from shared.findings import make_finding as _make_finding_base, Finding
+
+
+def make_finding(*args, **kwargs):
+    """Mark every UX result as dependent on the page's static HTML."""
+    kwargs.setdefault("content_dependent", True)
+    return _make_finding_base(*args, **kwargs)
 
 SKILL_PREFIX = "UX"
 
@@ -426,11 +431,6 @@ def run(url: str) -> list[Finding]:
 
     findings: list[Finding] = []
     idx = [1]
-
-    # Detect JS-render gap first — if detected, annotate content-dependent findings
-    js_gap = detect_js_render_gap(html_raw, soup)
-    if js_gap:
-        emit_js_render_finding(js_gap, SKILL_PREFIX, findings, idx)
 
     _check_headings(soup, findings, idx)
     _check_meta_description(soup, findings, idx)

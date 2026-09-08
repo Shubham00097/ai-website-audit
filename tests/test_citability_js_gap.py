@@ -1,10 +1,8 @@
 """
 tests/test_citability_js_gap.py
 
-A1: Verify that citability-freshness-audit correctly handles JS-render gaps:
-  - On a full SPA shell: content_quality and freshness findings do NOT fire,
-    JS-render finding DOES fire.
-  - On a normal SSR page: all checks run normally.
+A1: The citability skill marks static-HTML findings as content dependent. The
+orchestrator owns render-gap detection and confidence/severity adjustment.
 """
 from __future__ import annotations
 
@@ -49,8 +47,8 @@ SSR_PAGE = """<!DOCTYPE html>
 </html>"""
 
 
-def test_spa_suppresses_content_findings():
-    """On a full JS SPA shell, content_quality and freshness should NOT fire."""
+def test_spa_content_findings_are_eligible_for_orchestrator_discount():
+    """A standalone skill returns normal findings for the shared policy to adjust."""
     from shared.html_utils import parse_html
 
     with patch("shared.html_utils.fetch_html") as mock_fetch:
@@ -68,15 +66,13 @@ def test_spa_suppresses_content_findings():
 
         findings = module.run("https://spa-example.com")
 
-    # Should have JS-render finding
+    # The render-gap finding is emitted once by the full orchestrator, not here.
     js_findings = [f for f in findings if "JavaScript" in f.title or "JS" in f.title or "render" in f.title.lower()]
-    assert len(js_findings) >= 1, f"Expected JS-render finding, got: {[f.title for f in findings]}"
+    assert not js_findings
 
-    # Should NOT have content quality findings (those would be false positives on SPA shell)
     content_quality = [f for f in findings if f.cause_tag == "content_quality"]
-    assert len(content_quality) == 0, (
-        f"Content quality findings should not fire on SPA shell: {[f.title for f in content_quality]}"
-    )
+    assert content_quality
+    assert all(f.content_dependent for f in content_quality)
 
 
 def test_ssr_page_runs_all_checks():
@@ -95,7 +91,7 @@ def test_ssr_page_runs_all_checks():
 
         findings = module.run("https://ssr-example.com")
 
-    # Should NOT have JS-render finding (page has real content)
+    # JS-render detection is an orchestration concern.
     js_findings = [f for f in findings if "JavaScript" in f.title or "JS" in f.title or "render" in f.title.lower()]
     assert len(js_findings) == 0, f"SSR page should not trigger JS-render finding: {[f.title for f in js_findings]}"
 

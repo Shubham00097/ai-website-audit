@@ -13,6 +13,8 @@ from typing import Literal, Dict, Any, Optional
 Severity = Literal["critical", "high", "medium", "low"]
 Priority = Literal["high", "medium", "low"]
 
+RENDER_GAP_MANUAL_REVIEW = "manual review recommended — client-rendered page"
+
 SEVERITY_ORDER: Dict[str, int] = {
     "critical": 0,
     "high": 1,
@@ -46,6 +48,10 @@ class Finding:
     suggested_action: SuggestedAction
     confidence: Optional[str] = None  # B4: e.g. "live HTTP probe", "static heuristic"
     cause_tag: Optional[str] = None   # Correction 4 / B1: root-cause grouping tag
+    # Whether the result relies on static page HTML rather than an independent
+    # HTTP/robots/header check. The orchestrator uses this to discount results
+    # from pages whose meaningful content is rendered only in the browser.
+    content_dependent: bool = False
 
     def to_dict(self) -> Dict[str, Any]:
         d: Dict[str, Any] = {
@@ -71,6 +77,7 @@ def make_finding(
     confidence: Optional[str] = None,
     cause_tag: Optional[str] = None,
     snippet: Optional[str] = None,
+    content_dependent: bool = False,
 ) -> Finding:
     """
     Construct a Finding with a deterministic ID.
@@ -91,6 +98,7 @@ def make_finding(
         ),
         confidence=confidence,
         cause_tag=cause_tag,
+        content_dependent=content_dependent,
     )
 
 
@@ -151,5 +159,35 @@ def renumber_findings(findings: list[Finding]) -> list[Finding]:
             suggested_action=f.suggested_action,
             confidence=f.confidence,
             cause_tag=f.cause_tag,
+            content_dependent=f.content_dependent,
         ))
     return renumbered
+
+
+def apply_render_gap_discount(findings: list[Finding], gap_info: Optional[dict]) -> list[Finding]:
+    """Annotate content-dependent findings when static HTML is incomplete.
+
+    A full client-rendering gap reduces the severity of static-HTML findings by
+    one step. A partial gap preserves severity but still makes the uncertainty
+    explicit. Findings based on robots.txt, live probes, and response headers
+    remain untouched because they do not depend on rendered page content.
+    """
+    if not gap_info:
+        return findings
+
+    severity_after_full_gap = {
+        "critical": "high",
+        "high": "medium",
+        "medium": "low",
+        "low": "low",
+    }
+    is_partial = bool(gap_info.get("partial", False))
+
+    for finding in findings:
+        if not finding.content_dependent:
+            continue
+        finding.confidence = RENDER_GAP_MANUAL_REVIEW
+        if not is_partial:
+            finding.severity = severity_after_full_gap.get(finding.severity, finding.severity)
+
+    return findings

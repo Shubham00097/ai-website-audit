@@ -25,6 +25,7 @@ import re
 import sys
 import argparse
 from typing import Optional
+from bs4 import BeautifulSoup
 
 _REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
 if _REPO_ROOT not in sys.path:
@@ -32,9 +33,14 @@ if _REPO_ROOT not in sys.path:
 
 from shared.url_utils import normalise_url, validate_url
 from shared.html_utils import fetch_html_and_parse
-from shared.http_client import head
-from shared.findings import make_finding, Finding
-from shared.js_render_detector import detect_js_render_gap
+from shared.http_client import get, head
+from shared.findings import make_finding as _make_finding_base, Finding
+
+
+def make_finding(*args, **kwargs):
+    """Mark every schema result as dependent on the page's static HTML."""
+    kwargs.setdefault("content_dependent", True)
+    return _make_finding_base(*args, **kwargs)
 
 SKILL_PREFIX = "SCHEMA"
 
@@ -100,9 +106,29 @@ def _check_required_fields(schema: dict, schema_type: str) -> list[str]:
     return [field for field in required if not schema.get(field)]
 
 
-def _check_same_as(same_as: list[str], findings: list[Finding], idx: list[int]) -> None:
-    """Check sameAs links for placeholders and dead links (capped to top 6 to stay responsive)."""
+def _corroboration_candidates(same_as: list[str]) -> list[str]:
+    """Choose up to two sources, favouring pages with cheap public markup."""
+    unique_links = [link for link in dict.fromkeys(same_as) if link.startswith("http")]
+    preferred = [
+        link for link in unique_links
+        if "wikidata.org" in link.lower() or "wikipedia.org" in link.lower()
+    ]
+    return (preferred + [link for link in unique_links if link not in preferred])[:2]
+
+
+def _check_same_as(
+    same_as: list[str], findings: list[Finding], idx: list[int]
+) -> dict[str, object]:
+    """Check sameAs links and return live GET responses for corroboration.
+
+    A selected corroboration candidate is fetched once with GET, which both
+    establishes liveness and supplies its HTML. Other sameAs links use HEAD,
+    retaining the existing inexpensive liveness check without duplicate
+    requests to a candidate source.
+    """
     unique_links = list(dict.fromkeys(same_as))[:6]
+    candidates = set(_corroboration_candidates(unique_links))
+    corroboration_responses: dict[str, object] = {}
     for link in unique_links:
         if link == "#" or not link.startswith("http"):
             findings.append(make_finding(
@@ -127,7 +153,7 @@ def _check_same_as(same_as: list[str], findings: list[Finding], idx: list[int]) 
             idx[0] += 1
             continue
 
-        resp = head(link)
+        resp = get(link) if link in candidates else head(link)
         if resp is None or resp.status_code >= 400:
             findings.append(make_finding(
                 skill_prefix=SKILL_PREFIX,
@@ -149,6 +175,10 @@ def _check_same_as(same_as: list[str], findings: list[Finding], idx: list[int]) 
                 cause_tag="entity_identity",
             ))
             idx[0] += 1
+        elif link in candidates:
+            corroboration_responses[link] = resp
+
+    return corroboration_responses
 
 
 def _check_entity_disambiguation(same_as: list[str], findings: list[Finding], idx: list[int]) -> None:
@@ -180,14 +210,157 @@ def _check_entity_disambiguation(same_as: list[str], findings: list[Finding], id
         idx[0] += 1
 
 
+def _normalise_fact(value: object) -> str:
+    """Normalise lightly so harmless punctuation/case changes do not mismatch."""
+    if not isinstance(value, str):
+        return ""
+    return re.sub(r"[^a-z0-9]+", " ", value.lower()).strip()
+
+
+def _fact_matches(left: str, right: str) -> bool:
+    """Use exact/containment comparison for short, human-readable facts."""
+    normal_left = _normalise_fact(left)
+    normal_right = _normalise_fact(right)
+    return bool(normal_left and normal_right and (
+        normal_left == normal_right
+        or normal_left in normal_right
+        or normal_right in normal_left
+    ))
+
+
+def _date_fact(value: object) -> str:
+    if not isinstance(value, str):
+        return ""
+    match = re.search(r"\b(\d{4})(?:-\d{2}-\d{2})?\b", value)
+    return match.group(1) if match else ""
+
+
+def _own_entity_facts(schemas: list[dict], soup) -> dict[str, str]:
+    """Extract organisation/entity facts declared by the audited page."""
+    for schema in schemas:
+        name = schema.get("name") or schema.get("legalName")
+        if not isinstance(name, str) or not name.strip():
+            continue
+        address = schema.get("address") or schema.get("location")
+        if isinstance(address, dict):
+            location = (
+                address.get("addressLocality") or address.get("addressRegion")
+                or address.get("addressCountry") or address.get("name") or ""
+            )
+        else:
+            location = address if isinstance(address, str) else ""
+        return {
+            "name": name.strip(),
+            "founding_date": _date_fact(schema.get("foundingDate") or schema.get("foundingDate")),
+            "location": str(location).strip(),
+        }
+
+    heading = soup.find("h1")
+    if heading and heading.get_text(strip=True):
+        return {"name": heading.get_text(strip=True), "founding_date": "", "location": ""}
+    return {}
+
+
+def _external_entity_facts(response) -> dict[str, str]:
+    """Extract a small comparable fact set from common Wiki/infobox markup."""
+    try:
+        external_soup = BeautifulSoup(response.text, "html.parser")
+    except Exception:
+        return {}
+
+    name_tag = external_soup.select_one("#firstHeading, .wikibase-title-label, h1, title")
+    facts = {"name": name_tag.get_text(" ", strip=True) if name_tag else ""}
+    labels = {
+        "founding_date": ("founded", "inception", "established", "formed"),
+        "location": ("headquarters", "location", "head office", "country"),
+    }
+    for row in external_soup.select("tr"):
+        cells = row.find_all(["th", "td"])
+        if len(cells) < 2:
+            continue
+        label = cells[0].get_text(" ", strip=True).lower()
+        value = cells[1].get_text(" ", strip=True)
+        for fact_name, names in labels.items():
+            if any(candidate in label for candidate in names) and not facts.get(fact_name):
+                facts[fact_name] = _date_fact(value) if fact_name == "founding_date" else value
+    return {key: value for key, value in facts.items() if value}
+
+
+def _check_corroboration(
+    source_responses: dict[str, object],
+    schemas: list[dict],
+    soup,
+    findings: list[Finding],
+    idx: list[int],
+) -> None:
+    """Flag contradictory entity facts found in one independent live source."""
+    own_facts = _own_entity_facts(schemas, soup)
+    if not own_facts:
+        return
+
+    for source, response in source_responses.items():
+        external_facts = _external_entity_facts(response)
+        comparisons = []
+        for label in ("name", "founding_date", "location"):
+            own_value = own_facts.get(label, "")
+            external_value = external_facts.get(label, "")
+            if own_value and external_value and not _fact_matches(own_value, external_value):
+                comparisons.append((label.replace("_", " "), own_value, external_value))
+
+        if comparisons:
+            quoted = "; ".join(
+                f"{label}: page says '{own}', source says '{external}'"
+                for label, own, external in comparisons
+            )
+            findings.append(make_finding(
+                skill_prefix=SKILL_PREFIX,
+                index=idx[0],
+                title="Entity facts disagree across sources",
+                severity="high",
+                evidence=(
+                    f"Independent source {source} conflicts with the page's declared entity facts: {quoted}. "
+                    "Conflicting identity information can reduce AI systems' confidence in the entity."
+                ),
+                action_summary=(
+                    "Verify the organisation name, founding date, and location in both your JSON-LD and "
+                    "the linked independent profile. Correct the stale source or update sameAs to the "
+                    "authoritative profile before publishing consistent facts everywhere."
+                ),
+                action_priority="high",
+                confidence="live HTTP probe",
+                cause_tag="trust_signals",
+            ))
+            idx[0] += 1
+            return
+
+
+def _check_verifiable_presence(
+    same_as: list[str], findings: list[Finding], idx: list[int]
+) -> None:
+    """Report an absent identity footprint only when no external source was declared."""
+    if same_as:
+        return
+    findings.append(make_finding(
+        skill_prefix=SKILL_PREFIX,
+        index=idx[0],
+        title="No independently verifiable presence found for this entity",
+        severity="medium",
+        evidence=(
+            "No sameAs or other external identity source was declared in this page's JSON-LD. "
+            "AI systems have no linked independent profile to corroborate the entity's identity."
+        ),
+        action_summary=(
+            "Create or verify authoritative external profiles (preferably Wikidata, LinkedIn, or Crunchbase) "
+            "and link them from your Organization JSON-LD using sameAs."
+        ),
+        action_priority="medium",
+        confidence="static heuristic",
+        cause_tag="trust_signals",
+    ))
+    idx[0] += 1
+
+
 _TEMPLATES_PATH = os.path.join(os.path.dirname(__file__), "..", "references", "schema_templates.json")
-
-# Annotation suffix for findings on pages with detected JS render gaps.
-_JS_GAP_NOTE = (
-    " (note: this page appears to use client-side rendering — structured data may "
-    "be injected at runtime via JavaScript and invisible to static crawlers. Verify manually.)"
-)
-
 
 def _load_template(schema_type: str) -> str | None:
     """Load a JSON-LD template snippet for B3 copy-pasteable fixes."""
@@ -237,12 +410,6 @@ def run(url: str) -> list[Finding]:
     idx = [1]
     ymyl_types = _load_ymyl_types()
 
-    # Correction 3: detect JS-render gap for reduced-confidence annotation.
-    # JSON-LD is usually in static HTML, but sites using GTM or client-side
-    # head-managers may inject it at runtime — we can't assume immunity.
-    js_gap = detect_js_render_gap(html_raw, soup)
-    is_js_gap = js_gap is not None
-
     schemas = _extract_json_ld(soup)
 
     # Also check for Microdata/RDFa as a fallback signal
@@ -259,10 +426,6 @@ def run(url: str) -> list[Finding]:
             "Microdata (itemscope), or RDFa (typeof) structured data. "
             "AI systems rely on structured data to understand entity type, offerings, and identity."
         )
-        # Correction 3: annotate if JS render gap detected
-        if is_js_gap:
-            evidence += _JS_GAP_NOTE
-
         findings.append(make_finding(
             skill_prefix=SKILL_PREFIX,
             index=idx[0],
@@ -274,7 +437,7 @@ def run(url: str) -> list[Finding]:
                 "See skills/structured-data-audit/references/schema_templates.json for ready-to-adapt templates."
             ),
             action_priority="high",
-            confidence="manual review recommended" if is_js_gap else "static heuristic",
+            confidence="static heuristic",
             cause_tag="entity_identity",
             snippet=snippet,
         ))
@@ -363,20 +526,13 @@ def run(url: str) -> list[Finding]:
 
     # sameAs checks (once, across all schemas)
     if all_same_as:
-        _check_same_as(all_same_as, findings, idx)
+        source_responses = _check_same_as(all_same_as, findings, idx)
         _check_entity_disambiguation(all_same_as, findings, idx)
+        _check_corroboration(source_responses, schemas, soup, findings, idx)
     elif schemas:
         # Has schemas but no sameAs at all
         _check_entity_disambiguation([], findings, idx)
-
-    # Correction 3: if a JS render gap was detected, annotate all findings
-    # with reduced confidence since some structured data may be client-injected.
-    if is_js_gap:
-        for f in findings:
-            if not f.evidence.endswith(_JS_GAP_NOTE):
-                f.evidence += _JS_GAP_NOTE
-            if f.confidence == "static heuristic":
-                f.confidence = "manual review recommended"
+        _check_verifiable_presence([], findings, idx)
 
     return findings
 

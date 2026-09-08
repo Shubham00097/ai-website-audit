@@ -64,6 +64,26 @@
         }
       }
     },
+    "proactive_suggestions": {
+      "type": "array",
+      "description": "Optional high-value improvements that are not detected defects.",
+      "items": {
+        "type": "object",
+        "required": ["title", "rationale", "suggested_action"],
+        "properties": {
+          "title": {"type": "string"},
+          "rationale": {"type": "string"},
+          "suggested_action": {
+            "type": "object",
+            "required": ["summary", "priority"],
+            "properties": {
+              "summary": {"type": "string"},
+              "priority": {"type": "string", "enum": ["high", "medium", "low"]}
+            }
+          }
+        }
+      }
+    },
     "metadata": {
       "type": "object",
       "description": "Optional audit metadata",

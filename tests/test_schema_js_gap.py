@@ -1,12 +1,9 @@
 """
 tests/test_schema_js_gap.py
 
-Correction 3: Verify check_schema.py handles JS-render gaps correctly.
-On a SPA shell with no static JSON-LD, it should:
-  - Report "No structured data found" (not crash)
-  - Mark confidence as "manual review recommended" (not "static heuristic")
-  - Include the JS-gap annotation in evidence
-This proves the failure mode is an accepted false negative, not something worse.
+The schema skill remains independently testable on a SPA shell. Render-gap
+confidence/severity handling is now centralised in the orchestrator, so this
+skill must return its normal static-HTML result for the orchestrator to adjust.
 """
 from __future__ import annotations
 
@@ -68,14 +65,14 @@ def test_gtm_spa_reports_no_structured_data():
         f"Expected 'No structured data' finding, got: {titles}"
 
 
-def test_gtm_spa_has_reduced_confidence():
-    """On a JS-render-gap page, confidence should be 'manual review recommended'."""
+def test_gtm_spa_defers_render_gap_confidence_to_orchestrator():
+    """The standalone skill leaves confidence handling to the orchestrator."""
     with patch("shared.html_utils.fetch_html") as mock_fetch:
         mock_fetch.return_value = GTM_SPA_SHELL
         module = _load_schema_module()
         findings = module.run("https://gtm-spa.example.com")
 
-    # The "no structured data" finding should have reduced confidence
+    # The orchestrator, not the individual skill, applies the render-gap note.
     no_data_finding = None
     for f in findings:
         if "structured data" in f.title.lower():
@@ -83,12 +80,11 @@ def test_gtm_spa_has_reduced_confidence():
             break
 
     assert no_data_finding is not None
-    assert no_data_finding.confidence == "manual review recommended", \
-        f"Expected 'manual review recommended', got: {no_data_finding.confidence}"
+    assert no_data_finding.confidence == "static heuristic"
 
 
-def test_gtm_spa_evidence_mentions_js_render():
-    """Evidence should mention client-side rendering for transparency."""
+def test_gtm_spa_finding_is_marked_content_dependent():
+    """Schema findings expose eligibility for the shared render-gap policy."""
     with patch("shared.html_utils.fetch_html") as mock_fetch:
         mock_fetch.return_value = GTM_SPA_SHELL
         module = _load_schema_module()
@@ -101,5 +97,4 @@ def test_gtm_spa_evidence_mentions_js_render():
             break
 
     assert no_data_finding is not None
-    assert "client-side rendering" in no_data_finding.evidence.lower(), \
-        f"Evidence should mention client-side rendering: {no_data_finding.evidence[:200]}"
+    assert no_data_finding.content_dependent is True
