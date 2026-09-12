@@ -187,5 +187,7 @@ def emit_js_render_finding(
             "`curl -L <url> | grep -c '<p>'` to confirm server-rendered paragraph count."
         ),
         action_priority=severity,
+        cause_tag="javascript_rendering",
+        content_dependent=False,
     ))
     idx[0] += 1

@@ -33,7 +33,15 @@ if _REPO_ROOT not in sys.path:
     sys.path.insert(0, _REPO_ROOT)
 
 from shared.url_utils import normalise_url, validate_url, get_domain
-from shared.findings import Finding, sort_findings, deduplicate_findings, renumber_findings
+from shared.findings import (
+    Finding,
+    apply_render_gap_discount,
+    deduplicate_findings,
+    renumber_findings,
+    sort_findings,
+)
+from shared.html_utils import fetch_html_and_parse
+from shared.js_render_detector import detect_js_render_gap, emit_js_render_finding
 
 # Import sub-skill run() functions
 # Each returns list[Finding] or raises an exception on critical failure
@@ -95,8 +103,41 @@ _CAUSE_LABELS = {
     "content_integrity": "Content Integrity (Cloaking / Injection)",
     "trust_signals": "Trust & Authority Signals",
     "onsite_orientation": "On-Site Orientation & UX",
-    "js_render_gap": "JavaScript Render Gap",
+    "javascript_rendering": "JavaScript Rendering",
 }
+
+_PROACTIVE_SUGGESTIONS_PATH = os.path.join(
+    _REPO_ROOT, "skills", "audit-orchestrator", "references", "proactive_suggestions.json"
+)
+
+
+def _select_proactive_suggestions(findings: list[Finding], limit: int = 3) -> list[dict]:
+    """Return useful improvements that are not duplicates of detected defects."""
+    try:
+        with open(_PROACTIVE_SUGGESTIONS_PATH, "r", encoding="utf-8") as f:
+            candidates = json.load(f).get("suggestions", [])
+    except (OSError, json.JSONDecodeError):
+        return []
+
+    finding_text = " ".join(f.title.lower() for f in findings)
+    selected = []
+    for candidate in candidates:
+        terms = [term.lower() for term in candidate.get("skip_if_finding_terms", [])]
+        if any(term in finding_text for term in terms):
+            continue
+        action = candidate.get("suggested_action", {})
+        if not candidate.get("title") or not candidate.get("rationale"):
+            continue
+        if not action.get("summary") or action.get("priority") not in {"high", "medium", "low"}:
+            continue
+        selected.append({
+            "title": candidate["title"],
+            "rationale": candidate["rationale"],
+            "suggested_action": action,
+        })
+        if len(selected) == limit:
+            break
+    return selected
 
 
 def _cluster_root_causes(findings: list[Finding]) -> list[dict]:
@@ -174,6 +215,7 @@ def _build_report(
         },
         "root_causes": root_causes,
         "findings": [f.to_dict() for f in findings],
+        "proactive_suggestions": _select_proactive_suggestions(findings),
         "metadata": {
             "skills_run": skills_run,
             "skills_failed": skills_failed,
@@ -200,6 +242,15 @@ def audit(url: str) -> dict:
 
     print(f"[*] Starting Brand AI Readiness Audit for: {url}", file=sys.stderr)
     start_time = time.time()
+
+    # Detect render gaps once for the complete audit. Individual skills are
+    # intentionally unaware of the result so the same confidence/severity
+    # policy is applied consistently to every static-HTML finding.
+    render_gap = None
+    page = fetch_html_and_parse(url)
+    if page is not None:
+        html_raw, soup = page
+        render_gap = detect_js_render_gap(html_raw, soup)
 
     skills = _import_skills()
     all_findings: list[Finding] = []
@@ -229,6 +280,11 @@ def audit(url: str) -> dict:
     for name, fn in skills.items():
         if fn is None:
             skills_failed.append(name)
+
+    if render_gap:
+        emit_js_render_finding(render_gap, "RENDER", all_findings, [1])
+
+    apply_render_gap_discount(all_findings, render_gap)
 
     # Aggregate: deduplicate → sort by severity → renumber
     all_findings = deduplicate_findings(all_findings)
@@ -302,4 +358,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

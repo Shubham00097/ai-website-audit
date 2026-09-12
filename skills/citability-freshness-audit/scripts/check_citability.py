@@ -33,8 +33,13 @@ if _REPO_ROOT not in sys.path:
 
 from shared.url_utils import normalise_url, validate_url, get_domain
 from shared.html_utils import fetch_html_and_parse, get_meta_content, get_all_text_blocks
-from shared.findings import make_finding, Finding
-from shared.js_render_detector import detect_js_render_gap, emit_js_render_finding
+from shared.findings import make_finding as _make_finding_base, Finding
+
+
+def make_finding(*args, **kwargs):
+    """Mark every citability result as dependent on the page's static HTML."""
+    kwargs.setdefault("content_dependent", True)
+    return _make_finding_base(*args, **kwargs)
 
 # Import dateutil for robust ISO 8601 parsing (handles TZ offsets, Z-suffix, etc.)
 try:
@@ -531,10 +536,6 @@ def _check_cloaking(soup, findings: list[Finding], idx: list[int]) -> None:
             break  # One finding per category is sufficient
 
 
-# Suffix appended to evidence when partial JS render gap is detected.
-_PARTIAL_JS_NOTE = " (note: page shows signs of partial client-side rendering — verify manually.)"
-
-
 def run(url: str) -> list[Finding]:
     """Run the full citability and freshness audit. Returns a list of Finding objects."""
     url = normalise_url(url)
@@ -549,33 +550,11 @@ def run(url: str) -> list[Finding]:
     findings: list[Finding] = []
     idx = [1]
 
-    # Detect JS-render gap once at the top
-    js_gap = detect_js_render_gap(html_raw, soup)
-
-    if js_gap and not js_gap.get("partial", False):
-        # Full render gap: content_quality and freshness would be false positives
-        # on an empty SPA shell — emit the JS-render finding instead and skip them.
-        emit_js_render_finding(js_gap, SKILL_PREFIX, findings, idx)
-        # Still run non-content checks (author, trust signals, cloaking)
-        _check_author(soup, findings, idx)
-        _check_trust_signals(soup, url, findings, idx)
-        _check_cloaking(soup, findings, idx)
-    else:
-        if js_gap and js_gap.get("partial", False):
-            # Partial render gap: run all checks but tag findings with reduced confidence
-            emit_js_render_finding(js_gap, SKILL_PREFIX, findings, idx)
-
-        _check_content_quality(soup, findings, idx)
-        _check_freshness(soup, findings, idx)
-        _check_author(soup, findings, idx)
-        _check_trust_signals(soup, url, findings, idx)
-        _check_cloaking(soup, findings, idx)
-
-        # Annotate content-dependent findings with partial-gap note if applicable
-        if js_gap and js_gap.get("partial", False):
-            for f in findings:
-                if f.cause_tag in ("content_quality", "content_freshness"):
-                    f.evidence += _PARTIAL_JS_NOTE
+    _check_content_quality(soup, findings, idx)
+    _check_freshness(soup, findings, idx)
+    _check_author(soup, findings, idx)
+    _check_trust_signals(soup, url, findings, idx)
+    _check_cloaking(soup, findings, idx)
 
     return findings
 

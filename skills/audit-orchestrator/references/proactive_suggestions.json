@@ -1,0 +1,40 @@
+{
+  "suggestions": [
+    {
+      "title": "Add FAQPage schema for answer-led AI queries",
+      "rationale": "A concise, maintained FAQ can expose high-intent questions and direct answers even when no current markup defect is detected.",
+      "skip_if_finding_terms": ["structured data", "faqpage"],
+      "suggested_action": {
+        "summary": "Publish a user-facing FAQ and add valid FAQPage JSON-LD that matches the visible questions and answers. Review it whenever the product or policy changes.",
+        "priority": "medium"
+      }
+    },
+    {
+      "title": "Publish an llms.txt usage policy",
+      "rationale": "An explicit policy can clarify preferred AI-readable resources and usage expectations beyond merely making an llms.txt file reachable.",
+      "skip_if_finding_terms": ["/llms.txt"],
+      "suggested_action": {
+        "summary": "Maintain /llms.txt with key canonical pages, concise content descriptions, and an explicit usage policy for AI retrieval systems.",
+        "priority": "medium"
+      }
+    },
+    {
+      "title": "Use one canonical Organization @id across the site",
+      "rationale": "A stable entity identifier helps AI systems connect organisation facts, products, articles, and author profiles across separate pages.",
+      "skip_if_finding_terms": ["structured data", "organization schema"],
+      "suggested_action": {
+        "summary": "Define a canonical Organization JSON-LD @id (for example, https://example.com/#organization) and reference that same ID from related structured-data blocks.",
+        "priority": "medium"
+      }
+    },
+    {
+      "title": "Add Article dateModified signals to maintained editorial pages",
+      "rationale": "Explicit modification dates make ongoing stewardship visible to AI systems even when currently available date signals pass the audit.",
+      "skip_if_finding_terms": ["publication date", "datepublished", "content is stale"],
+      "suggested_action": {
+        "summary": "For editorial pages, include accurate Article datePublished and dateModified fields in JSON-LD and update dateModified whenever material content changes.",
+        "priority": "low"
+      }
+    }
+  ]
+}
