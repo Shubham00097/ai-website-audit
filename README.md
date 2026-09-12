@@ -18,7 +18,6 @@ Point the tool at a URL — get back a structured JSON report with concrete find
 - [Design Principles](#design-principles)
 - [Severity Levels](#severity-levels)
 - [allowed-tools Decision](#allowed-tools-decision)
-- [Source Attribution](#source-attribution)
 - [Repository](#repository)
 
 ---
