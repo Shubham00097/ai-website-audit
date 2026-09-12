@@ -296,16 +296,6 @@ Per the [agentskills.io specification](https://agentskills.io/specification) (ex
 
 ---
 
-## Source Attribution
-
-| Repository | Contribution |
-|---|---|
-| [internet-and-sons/geo-reporter](https://github.com/internet-and-sons/geo-reporter) | AI crawler registry, declared-vs-actual mismatch detection, citability scorer, cloaking detection |
-| [Almontas/ai-visibility-audit](https://github.com/Almontas/ai-visibility-audit) | Scoring model design, freshness checks, trust signals, engagement metrics |
-| [zxhydfzr/website-seo-audit](https://github.com/zxhydfzr/website-seo-audit) | Python architecture pattern, SKILL.md format, heading and SEO checks |
-
----
-
 ## Repository
 
 - **Repository ID**: [Shubham00097/ai-website-audit](https://github.com/Shubham00097/ai-website-audit)
