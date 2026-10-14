@@ -295,8 +295,5 @@ Per the [agentskills.io specification](https://agentskills.io/specification) (ex
 
 ---
 
-## Repository
 
-- **Repository ID**: [Shubham00097/ai-website-audit](https://github.com/Shubham00097/ai-website-audit)
-- **Author**: Shubham Kumar ([@Shubham00097](https://github.com/Shubham00097))
 
